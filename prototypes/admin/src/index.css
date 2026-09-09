@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #00288e;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #1e40af;
+  --color-on-primary-container: #a8b8ff;
+  --color-primary-fixed: #dde1ff;
+  --color-primary-fixed-dim: #b8c4ff;
+  
+  --color-secondary: #585f67;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #dce3ec;
+  --color-on-secondary-container: #5e656d;
+  --color-secondary-fixed: #dce3ec;
+  --color-secondary-fixed-dim: #c0c7d0;
+
+  --color-tertiary: #003272;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #00489e;
+  --color-on-tertiary-container: #9cbbff;
+  --color-tertiary-fixed: #d8e2ff;
+
+  --color-surface: #f8f9ff;
+  --color-on-surface: #0b1c30;
+  --color-surface-dim: #cbdbf5;
+  --color-surface-bright: #f8f9ff;
+  --color-surface-variant: #d3e4fe;
+  --color-on-surface-variant: #444653;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #eff4ff;
+  --color-surface-container: #e5eeff;
+  --color-surface-container-high: #dce9ff;
+  --color-surface-container-highest: #d3e4fe;
+
+  --color-background: #f8f9ff;
+  --color-on-background: #0b1c30;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  --color-outline: #757684;
+  --color-outline-variant: #c4c5d5;
+}
+
+@layer utilities {
+  .p-card-padding {
+    padding: 20px;
+  }
+  .p-gutter {
+    padding: 16px;
+  }
+  .py-gutter {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+  .px-gutter {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .px-margin-desktop {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+  .px-margin-mobile {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .p-margin-desktop {
+    padding: 32px;
+  }
+  .p-margin-mobile {
+    padding: 16px;
+  }
+  .gap-gutter {
+    gap: 16px;
+  }
+  .gap-unit {
+    gap: 4px;
+  }
+  .h-table-row-height {
+    height: 56px;
+  }
+  .font-headline-md {
+    font-family: 'Inter', sans-serif;
+    font-size: 24px;
+    line-height: 32px;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+  .font-headline-md-mobile {
+    font-family: 'Inter', sans-serif;
+    font-size: 20px;
+    line-height: 28px;
+    font-weight: 600;
+  }
+  .font-title-sm {
+    font-family: 'Inter', sans-serif;
+    font-size: 18px;
+    line-height: 24px;
+    font-weight: 600;
+  }
+  .font-body-md {
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 400;
+  }
+  .font-body-sm {
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 400;
+  }
+  .font-label-caps {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+  }
+  .font-display-lg {
+    font-family: 'Inter', sans-serif;
+    font-size: 32px;
+    line-height: 40px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  .font-data-mono {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 500;
+  }
+  .card-shadow {
+    box-shadow: 0px 4px 12px rgba(30, 64, 175, 0.05);
+  }
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+}
+

@@ -1,0 +1,8 @@
+{
+  "name": "Remix BantayGawaMobile Admin Portal",
+  "description": "Interactive workforce and geofence management admin portal",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

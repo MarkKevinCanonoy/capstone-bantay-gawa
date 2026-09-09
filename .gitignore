@@ -1,0 +1,27 @@
+# Flutter & Dart
+**/build/
+**/.dart_tool/
+**/.pub-cache/
+**/.pub/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
+# Node / JS Prototypes
+**/node_modules/
+**/dist/
+
+# Environment and secrets
+.env
+.env.local
+*.pem
+*.key
+
+# IDE / Editor
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+*.log
