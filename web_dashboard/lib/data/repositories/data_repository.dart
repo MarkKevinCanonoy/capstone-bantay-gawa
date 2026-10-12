@@ -18,6 +18,11 @@ abstract class DataRepository {
   Future<List<UserModel>> getUsers({String? areaId, UserRole? role});
   Future<void> addUser(UserModel user);
   Future<void> deleteUser(String userId);
+  Future<void> assignWorkerToArea({
+    required String workerId,
+    required String? areaId,
+    String? areaName,
+  });
 
   // Attendance
   Future<List<AttendanceModel>> getAttendanceLogs({String? areaId, String? workerId});

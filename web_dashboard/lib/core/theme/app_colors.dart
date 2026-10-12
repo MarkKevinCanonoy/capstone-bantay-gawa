@@ -17,6 +17,7 @@ class AppColors {
   static const Color primaryNavy = Color(0xFF0A194E); // Deep Midnight Navy
   static const Color primaryDark = Color(0xFF0F172A); // Slate 900
   static const Color accentBlue = Color(0xFF2563EB); // Electric Royal Blue
+  static const Color accentEmerald = Color(0xFF059669); // Emerald Green
   static const Color navActiveBackground = Color(0xFFEFF6FF); // Light Tint Blue
   static const Color navActiveIndicator = Color(0xFF2563EB); // 3dp indicator border
   static const Color secondaryButton = Color(0xFFEAEEF4); // Pale Slate Gray

@@ -119,8 +119,11 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 16,
+            runSpacing: 12,
             children: [
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -209,19 +212,27 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Row(
+                                      Wrap(
+                                        alignment: WrapAlignment.spaceBetween,
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        spacing: 8,
+                                        runSpacing: 4,
                                         children: [
-                                          Text(alert.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
-                                          const SizedBox(width: 8),
-                                          StatusBadge(
-                                            label: alert.isResolved ? 'RESOLVED' : alert.severity.toUpperCase(),
-                                            type: alert.isResolved
-                                                ? BadgeType.success
-                                                : isCritical
-                                                    ? BadgeType.danger
-                                                    : BadgeType.warning,
+                                          Wrap(
+                                            spacing: 8,
+                                            crossAxisAlignment: WrapCrossAlignment.center,
+                                            children: [
+                                              Text(alert.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary)),
+                                              StatusBadge(
+                                                label: alert.isResolved ? 'RESOLVED' : alert.severity.toUpperCase(),
+                                                type: alert.isResolved
+                                                    ? BadgeType.success
+                                                    : isCritical
+                                                        ? BadgeType.danger
+                                                        : BadgeType.warning,
+                                              ),
+                                            ],
                                           ),
-                                          const Spacer(),
                                           Text(alert.timeAgo, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
                                         ],
                                       ),
@@ -264,16 +275,19 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                Wrap(
+                                  alignment: WrapAlignment.spaceBetween,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  spacing: 8,
+                                  runSpacing: 4,
                                   children: [
-                                    Row(
+                                    Wrap(
+                                      spacing: 8,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
                                       children: [
                                         Text(bc.subject, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textPrimary)),
-                                        if (bc.isConfidential) ...[
-                                          const SizedBox(width: 8),
+                                        if (bc.isConfidential)
                                           const StatusBadge(label: 'CONFIDENTIAL', type: BadgeType.danger),
-                                        ],
                                       ],
                                     ),
                                     Text('Recipients: ${bc.recipients}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.accentBlue)),

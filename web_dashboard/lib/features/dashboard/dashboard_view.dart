@@ -97,13 +97,20 @@ class DashboardView extends ConsumerWidget {
           // KPI Stats Row
           LayoutBuilder(
             builder: (context, constraints) {
-              final isNarrow = constraints.maxWidth < 900;
+              final double cardWidth;
+              if (constraints.maxWidth < 640) {
+                cardWidth = constraints.maxWidth;
+              } else if (constraints.maxWidth < 1100) {
+                cardWidth = (constraints.maxWidth - 16) / 2;
+              } else {
+                cardWidth = (constraints.maxWidth - 48) / 4;
+              }
               return Wrap(
                 spacing: 16,
                 runSpacing: 16,
                 children: [
                   SizedBox(
-                    width: isNarrow ? (constraints.maxWidth - 16) / 2 : (constraints.maxWidth - 48) / 4,
+                    width: cardWidth,
                     child: StatCard(
                       title: 'Active Workers',
                       value: '$activeWorkersCount',
@@ -115,7 +122,7 @@ class DashboardView extends ConsumerWidget {
                     ),
                   ),
                   SizedBox(
-                    width: isNarrow ? (constraints.maxWidth - 16) / 2 : (constraints.maxWidth - 48) / 4,
+                    width: cardWidth,
                     child: StatCard(
                       title: 'Geofence Compliance',
                       value: '$complianceRate%',
@@ -127,7 +134,7 @@ class DashboardView extends ConsumerWidget {
                     ),
                   ),
                   SizedBox(
-                    width: isNarrow ? (constraints.maxWidth - 16) / 2 : (constraints.maxWidth - 48) / 4,
+                    width: cardWidth,
                     child: StatCard(
                       title: 'Active Work Zones',
                       value: '${workAreas.where((a) => a.status == "Active").length}/${workAreas.length}',
@@ -139,7 +146,7 @@ class DashboardView extends ConsumerWidget {
                     ),
                   ),
                   SizedBox(
-                    width: isNarrow ? (constraints.maxWidth - 16) / 2 : (constraints.maxWidth - 48) / 4,
+                    width: cardWidth,
                     child: StatCard(
                       title: 'Pending Leaves',
                       value: '$pendingLeaves',
@@ -160,14 +167,8 @@ class DashboardView extends ConsumerWidget {
           LayoutBuilder(
             builder: (context, constraints) {
               final isStacked = constraints.maxWidth < 1000;
-              return Flex(
-                direction: isStacked ? Axis.vertical : Axis.horizontal,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Left / Primary: GIS Workforce Geofence Map
-                  Expanded(
-                    flex: isStacked ? 0 : 3,
-                    child: AppCard(
+
+              final gisMapCard = AppCard(
                       padding: const EdgeInsets.all(20),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,17 +271,10 @@ class DashboardView extends ConsumerWidget {
                           ),
                         ],
                       ),
-                    ),
-                  ),
+                    );
 
-                  if (!isStacked) const SizedBox(width: 24),
-                  if (isStacked) const SizedBox(height: 24),
-
-                  // Right / Secondary: Critical Alerts & Activity
-                  Expanded(
-                    flex: isStacked ? 0 : 2,
-                    child: Column(
-                      children: [
+              final alertsAndActivity = Column(
+                children: [
                         AppCard(
                           padding: const EdgeInsets.all(20),
                           child: Column(
@@ -419,8 +413,25 @@ class DashboardView extends ConsumerWidget {
                           ),
                         ),
                       ],
-                    ),
-                  ),
+                    );
+
+              if (isStacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    gisMapCard,
+                    const SizedBox(height: 24),
+                    alertsAndActivity,
+                  ],
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 3, child: gisMapCard),
+                  const SizedBox(width: 24),
+                  Expanded(flex: 2, child: alertsAndActivity),
                 ],
               );
             },

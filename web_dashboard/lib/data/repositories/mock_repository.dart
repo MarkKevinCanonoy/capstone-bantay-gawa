@@ -19,25 +19,36 @@ class MockRepository implements DataRepository {
   final List<BroadcastModel> _broadcasts = List.from(MockData.broadcasts);
   final List<IncidentReportModel> _incidents = List.from(MockData.incidents);
 
+  int _countWorkersInArea(String areaId) {
+    return _users.where((u) => u.role == UserRole.worker && u.assignedAreaId == areaId).length;
+  }
+
   // Work Areas
   @override
   Future<List<WorkAreaModel>> getWorkAreas({String? supervisorId}) async {
+    var list = _workAreas.map((a) {
+      final count = _countWorkersInArea(a.workareaId);
+      return a.copyWith(assignedCount: count);
+    }).toList();
+
     if (supervisorId != null && supervisorId.isNotEmpty) {
-      return _workAreas.where((a) => a.supervisorId == supervisorId).toList();
+      list = list.where((a) => a.supervisorId == supervisorId).toList();
     }
-    return List.unmodifiable(_workAreas);
+    return List.unmodifiable(list);
   }
 
   @override
   Future<void> addWorkArea(WorkAreaModel area) async {
-    _workAreas.insert(0, area);
+    final count = _countWorkersInArea(area.workareaId);
+    _workAreas.insert(0, area.copyWith(assignedCount: count));
   }
 
   @override
   Future<void> updateWorkArea(WorkAreaModel area) async {
     final idx = _workAreas.indexWhere((a) => a.workareaId == area.workareaId);
     if (idx != -1) {
-      _workAreas[idx] = area;
+      final count = _countWorkersInArea(area.workareaId);
+      _workAreas[idx] = area.copyWith(assignedCount: count);
     }
   }
 
@@ -67,6 +78,30 @@ class MockRepository implements DataRepository {
   @override
   Future<void> deleteUser(String userId) async {
     _users.removeWhere((u) => u.userId == userId);
+  }
+
+  @override
+  Future<void> assignWorkerToArea({
+    required String workerId,
+    required String? areaId,
+    String? areaName,
+  }) async {
+    final idx = _users.indexWhere((u) => u.userId == workerId);
+    if (idx != -1) {
+      if (areaId == null) {
+        _users[idx] = _users[idx].copyWith(clearAssignedArea: true);
+      } else {
+        _users[idx] = _users[idx].copyWith(
+          assignedAreaId: areaId,
+          assignedAreaName: areaName,
+        );
+      }
+      // Synchronize assignedCount for all work areas
+      for (int i = 0; i < _workAreas.length; i++) {
+        final count = _countWorkersInArea(_workAreas[i].workareaId);
+        _workAreas[i] = _workAreas[i].copyWith(assignedCount: count);
+      }
+    }
   }
 
   // Attendance

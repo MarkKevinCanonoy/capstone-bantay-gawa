@@ -84,7 +84,7 @@ class AppButton extends StatelessWidget {
 
     Widget btn = Material(
       color: onPressed == null ? bg.withValues(alpha: 0.5) : bg,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: border == null ? BorderRadius.circular(8) : null,
       shape: border != null ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: border) : null,
       child: InkWell(
         onTap: isLoading ? null : onPressed,

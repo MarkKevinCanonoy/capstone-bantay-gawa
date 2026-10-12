@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
-enum ToastType { success, error, info }
+enum ToastType { success, error, info, warning }
 
 class ToastNotification {
   static void show(
@@ -24,6 +24,11 @@ class ToastNotification {
         bg = const Color(0xFF991B1B); // Dark Red
         fg = Colors.white;
         icon = Icons.error_outline;
+        break;
+      case ToastType.warning:
+        bg = const Color(0xFFB45309); // Amber 700
+        fg = Colors.white;
+        icon = Icons.warning_amber_rounded;
         break;
       case ToastType.info:
         bg = AppColors.primaryNavy;

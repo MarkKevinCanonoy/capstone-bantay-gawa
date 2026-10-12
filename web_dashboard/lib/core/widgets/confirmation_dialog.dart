@@ -62,23 +62,25 @@ class ConfirmationDialog extends StatelessWidget {
       ),
       content: SizedBox(
         width: 440,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              message,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 14,
-                height: 1.5,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                message,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
               ),
-            ),
-            if (contentWidget != null) ...[
-              const SizedBox(height: 16),
-              contentWidget!,
+              if (contentWidget != null) ...[
+                const SizedBox(height: 16),
+                contentWidget!,
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actionsPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
