@@ -1,0 +1,11 @@
+{
+  "name": "Remix BantayGawa - Field Force Management",
+  "description": "Civic field force and LGU worker attendance tracking, geofencing, daily accomplishment reporting, and performance monitoring prototype.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
