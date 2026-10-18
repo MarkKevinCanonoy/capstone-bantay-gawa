@@ -56,13 +56,16 @@ class StatusBadge extends StatelessWidget {
             Icon(icon, size: 12, color: text),
             const SizedBox(width: 4),
           ],
-          Text(
-            label.toUpperCase(),
-            style: TextStyle(
-              color: text,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.5,
+          Flexible(
+            child: Text(
+              label.toUpperCase(),
+              style: TextStyle(
+                color: text,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],

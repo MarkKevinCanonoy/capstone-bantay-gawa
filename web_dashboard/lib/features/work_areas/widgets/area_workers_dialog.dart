@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/toast_notification.dart';
+import '../../../core/widgets/confirmation_dialog.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/models/work_area_model.dart';
 import '../../../data/repositories/repository_provider.dart';
@@ -78,8 +78,30 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
   }
 
   Future<void> _toggleAssignment(UserModel worker) async {
-    final repo = ref.read(dataRepositoryProvider);
     final isAssignedHere = worker.assignedAreaId == widget.area.workareaId;
+    final isAssignedElsewhere = worker.assignedAreaId != null &&
+        worker.assignedAreaId!.isNotEmpty &&
+        !isAssignedHere;
+
+    if (isAssignedElsewhere) {
+      // Prompt confirmation if worker is already assigned to another area
+      ConfirmationDialog.show(
+        context,
+        title: 'Confirm Worker Reassignment',
+        message: '${worker.fullName} is currently assigned to ${worker.assignedAreaName ?? "another sector"}. Do you want to transfer them to ${widget.area.name}?\n\nThe worker will automatically receive an in-app assignment notification.',
+        confirmLabel: 'Reassign Worker',
+        onConfirm: () async {
+          await _executeAssignment(worker, isAssignedHere);
+        },
+      );
+      return;
+    }
+
+    await _executeAssignment(worker, isAssignedHere);
+  }
+
+  Future<void> _executeAssignment(UserModel worker, bool isAssignedHere) async {
+    final repo = ref.read(dataRepositoryProvider);
 
     if (isAssignedHere) {
       // Unassign worker back to the floating unassigned pool
@@ -91,7 +113,7 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
       if (mounted) {
         ToastNotification.show(
           context,
-          message: '${worker.fullName} removed from ${widget.area.name}.',
+          message: '${worker.fullName} unassigned from ${widget.area.name}.',
           type: ToastType.info,
         );
       }
@@ -105,7 +127,7 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
       if (mounted) {
         ToastNotification.show(
           context,
-          message: '${worker.fullName} assigned to ${widget.area.name}!',
+          message: '${worker.fullName} assigned to ${widget.area.name}! In-app notification sent.',
           type: ToastType.success,
         );
       }
@@ -113,35 +135,9 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
 
     ref.invalidate(workAreasProvider);
     ref.invalidate(employeesProvider);
+    ref.invalidate(broadcastsProvider);
     widget.onAssignmentsChanged?.call();
     await _loadWorkers();
-  }
-
-  Future<void> _shareRoster() async {
-    final assigned = _workers.where((w) => w.assignedAreaId == widget.area.workareaId).toList();
-    final buffer = StringBuffer();
-    buffer.writeln('📋 ENRO Ormoc City - Work Area Roster');
-    buffer.writeln('Area: ${widget.area.name}');
-    buffer.writeln('Supervisor: ${widget.area.supervisorName}');
-    buffer.writeln('Total Assigned: ${assigned.length} Field Workers');
-    buffer.writeln('----------------------------------------');
-    if (assigned.isEmpty) {
-      buffer.writeln('No workers currently assigned to this sector.');
-    } else {
-      for (int i = 0; i < assigned.length; i++) {
-        final w = assigned[i];
-        buffer.writeln('${i + 1}. ${w.fullName} (${w.contactNumber}) - Shift: ${w.schedule}');
-      }
-    }
-
-    await Clipboard.setData(ClipboardData(text: buffer.toString()));
-    if (mounted) {
-      ToastNotification.show(
-        context,
-        message: 'Work area worker roster copied to clipboard!',
-        type: ToastType.success,
-      );
-    }
   }
 
   List<UserModel> _getFilteredAndSortedWorkers() {
@@ -281,12 +277,6 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Share Roster Button
-                IconButton(
-                  icon: const Icon(Icons.share_outlined, size: 20, color: AppColors.textSecondary),
-                  tooltip: 'Share Worker Roster (Copy to Clipboard)',
-                  onPressed: _shareRoster,
-                ),
                 // Close Dialog
                 IconButton(
                   icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),

@@ -227,7 +227,15 @@ class AppSidebar extends ConsumerWidget {
                 _buildNavItem(
                   context: context,
                   navKey: 'profile',
-                  label: 'Settings & Profile',
+                  label: 'My Profile',
+                  icon: Icons.person_outline_rounded,
+                  currentNav: currentNav,
+                  onSelect: (k) => ref.read(activeNavProvider.notifier).state = k,
+                ),
+                _buildNavItem(
+                  context: context,
+                  navKey: 'settings',
+                  label: 'Settings',
                   icon: Icons.settings_outlined,
                   currentNav: currentNav,
                   onSelect: (k) => ref.read(activeNavProvider.notifier).state = k,
@@ -237,17 +245,22 @@ class AppSidebar extends ConsumerWidget {
           ),
 
           // Bottom User Card
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: AppColors.border, width: 1)),
-            ),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppColors.primaryNavy,
-                  child: Text(
+          InkWell(
+            onTap: () {
+              ref.read(activeNavProvider.notifier).state = 'profile';
+              onCloseMobile?.call();
+            },
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: AppColors.border, width: 1)),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppColors.primaryNavy,
+                    child: Text(
                     currentUser.initials,
                     style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                   ),
@@ -280,8 +293,9 @@ class AppSidebar extends ConsumerWidget {
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 }

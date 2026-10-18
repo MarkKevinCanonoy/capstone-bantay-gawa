@@ -6,6 +6,7 @@ import '../models/leave_request_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
+import '../models/location_tracking_model.dart';
 import '../datasources/mock_data.dart';
 import 'data_repository.dart';
 
@@ -18,6 +19,7 @@ class MockRepository implements DataRepository {
   final List<AlertModel> _alerts = List.from(MockData.alerts);
   final List<BroadcastModel> _broadcasts = List.from(MockData.broadcasts);
   final List<IncidentReportModel> _incidents = List.from(MockData.incidents);
+  final List<LocationTrackingModel> _locationTracking = List.from(MockData.locationTracking);
 
   int _countWorkersInArea(String areaId) {
     return _users.where((u) => u.role == UserRole.worker && u.assignedAreaId == areaId).length;
@@ -57,7 +59,7 @@ class MockRepository implements DataRepository {
     _workAreas.removeWhere((a) => a.workareaId == areaId);
   }
 
-  // Users
+  // Users & Worker Assignments (UC-07)
   @override
   Future<List<UserModel>> getUsers({String? areaId, UserRole? role}) async {
     var list = _users;
@@ -88,6 +90,7 @@ class MockRepository implements DataRepository {
   }) async {
     final idx = _users.indexWhere((u) => u.userId == workerId);
     if (idx != -1) {
+      final previousArea = _users[idx].assignedAreaName;
       if (areaId == null) {
         _users[idx] = _users[idx].copyWith(clearAssignedArea: true);
       } else {
@@ -96,15 +99,47 @@ class MockRepository implements DataRepository {
           assignedAreaName: areaName,
         );
       }
+
       // Synchronize assignedCount for all work areas
       for (int i = 0; i < _workAreas.length; i++) {
         final count = _countWorkersInArea(_workAreas[i].workareaId);
         _workAreas[i] = _workAreas[i].copyWith(assignedCount: count);
       }
+
+      // Main Flow Step 8: System dispatches assignment notification to worker
+      if (areaId != null) {
+        _broadcasts.insert(
+          0,
+          BroadcastModel(
+            notificationId: 'notif-assign-${DateTime.now().millisecondsSinceEpoch}',
+            senderId: 'user-admin-1',
+            recipients: _users[idx].fullName,
+            subject: 'New Work Area Assignment',
+            message: 'You have been assigned to $areaName${previousArea != null ? " (transferred from $previousArea)" : ""}. Please report to your sector for upcoming shifts.',
+            isConfidential: true,
+            deliveredCount: 1,
+            sentAt: DateTime.now(),
+          ),
+        );
+      }
     }
   }
 
-  // Attendance
+  @override
+  Future<void> bulkAssignWorkers(Map<String, String?> assignments) async {
+    for (final entry in assignments.entries) {
+      final workerId = entry.key;
+      final areaId = entry.value;
+      String? areaName;
+      if (areaId != null) {
+        final found = _workAreas.firstWhere((a) => a.workareaId == areaId, orElse: () => _workAreas.first);
+        areaName = found.name;
+      }
+      await assignWorkerToArea(workerId: workerId, areaId: areaId, areaName: areaName);
+    }
+  }
+
+  // Attendance & Location Tracking (UC-08)
   @override
   Future<List<AttendanceModel>> getAttendanceLogs({String? areaId, String? workerId}) async {
     var list = _attendanceLogs;
@@ -124,6 +159,15 @@ class MockRepository implements DataRepository {
       final current = _attendanceLogs[idx];
       _attendanceLogs[idx] = current.copyWith(isVerified: !current.isVerified);
     }
+  }
+
+  @override
+  Future<List<LocationTrackingModel>> getLocationBreadcrumbs({String? userId, String? areaId}) async {
+    var list = _locationTracking;
+    if (userId != null && userId.isNotEmpty) {
+      list = list.where((b) => b.userId == userId).toList();
+    }
+    return List.unmodifiable(list);
   }
 
   // Accomplishments
@@ -156,7 +200,7 @@ class MockRepository implements DataRepository {
     }
   }
 
-  // Leaves
+  // Leaves (UC-03 & UC-13)
   @override
   Future<List<LeaveRequestModel>> getLeaveRequests({String? areaId}) async {
     if (areaId != null && areaId.isNotEmpty) {
@@ -184,21 +228,103 @@ class MockRepository implements DataRepository {
     }
   }
 
-  // Alerts
   @override
-  Future<List<AlertModel>> getAlerts({String? areaId}) async {
-    return List.unmodifiable(_alerts);
+  Future<void> endorseLeaveRequest(
+    String leaveId, {
+    required String supervisorId,
+    required String supervisorName,
+    required String comments,
+  }) async {
+    final idx = _leaveRequests.indexWhere((l) => l.leaveId == leaveId);
+    if (idx != -1) {
+      final current = _leaveRequests[idx];
+      _leaveRequests[idx] = current.copyWith(
+        supervisorEndorsement: comments,
+        endorsedBy: supervisorName,
+        endorsedAt: DateTime.now(),
+      );
+    }
+  }
+
+  // Alerts (UC-09)
+  @override
+  Future<List<AlertModel>> getAlerts({String? areaId, String? category}) async {
+    var list = _alerts;
+    if (areaId != null && areaId.isNotEmpty) {
+      list = list.where((a) => a.workareaId == areaId).toList();
+    }
+    if (category != null && category.isNotEmpty && category != 'all') {
+      list = list.where((a) => a.srsCategory == category).toList();
+    }
+    return List.unmodifiable(list);
   }
 
   @override
   Future<void> resolveAlert(String alertId) async {
     final idx = _alerts.indexWhere((a) => a.alertId == alertId);
     if (idx != -1) {
-      _alerts[idx] = _alerts[idx].copyWith(isResolved: true);
+      _alerts[idx] = _alerts[idx].copyWith(
+        isResolved: true,
+        resolvedAt: DateTime.now(),
+        responseAction: 'acknowledged',
+      );
     }
   }
 
-  // Broadcasts
+  @override
+  Future<void> sendWarningForAlert({
+    required String alertId,
+    required String workerId,
+    required String message,
+    String? supervisorId,
+  }) async {
+    final idx = _alerts.indexWhere((a) => a.alertId == alertId);
+    if (idx != -1) {
+      final current = _alerts[idx];
+      _alerts[idx] = current.copyWith(
+        isResolved: true,
+        resolvedAt: DateTime.now(),
+        responseAction: 'warning_sent',
+        responseNote: message,
+      );
+
+      // UC-09 Main Flow Step 5: Send warning notification to the worker and Supervisor
+      final targetName = current.workerName ?? 'Worker';
+      _broadcasts.insert(
+        0,
+        BroadcastModel(
+          notificationId: 'warn-${DateTime.now().millisecondsSinceEpoch}',
+          senderId: 'user-admin-1',
+          recipients: '$targetName & Supervisor ${current.supervisorName ?? "In-charge"}',
+          subject: 'Official Warning: ${current.title}',
+          message: message,
+          isConfidential: true,
+          deliveredCount: 2,
+          sentAt: DateTime.now(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> dismissAlert({
+    required String alertId,
+    required String adminId,
+    String? reason,
+  }) async {
+    final idx = _alerts.indexWhere((a) => a.alertId == alertId);
+    if (idx != -1) {
+      _alerts[idx] = _alerts[idx].copyWith(
+        isResolved: true,
+        resolvedAt: DateTime.now(),
+        resolvedBy: adminId,
+        responseAction: 'dismissed',
+        responseNote: reason ?? 'Dismissed without punitive action (Logged for audit).',
+      );
+    }
+  }
+
+  // Broadcasts & Supervisor Report Transmittal (UC-06 & UC-12)
   @override
   Future<List<BroadcastModel>> getBroadcasts() async {
     return List.unmodifiable(_broadcasts);
@@ -209,13 +335,45 @@ class MockRepository implements DataRepository {
     _broadcasts.insert(0, broadcast);
   }
 
-  // Incidents
   @override
-  Future<List<IncidentReportModel>> getIncidents({String? reporterId}) async {
+  Future<void> sendReportToAdmin({
+    required String reportType,
+    required String summary,
+    String? note,
+    required String supervisorId,
+    required String supervisorName,
+  }) async {
+    final memo = BroadcastModel(
+      notificationId: 'rpt-admin-${DateTime.now().millisecondsSinceEpoch}',
+      senderId: supervisorId,
+      recipients: 'City Administration',
+      subject: 'Field Supervisor Report Transmittal: $reportType',
+      message: 'Supervisor $supervisorName submitted official report audit.\nSummary: $summary${(note != null && note.isNotEmpty) ? '\nTransmittal Note: $note' : ''}',
+      isConfidential: false,
+      deliveredCount: 1,
+      sentAt: DateTime.now(),
+    );
+    _broadcasts.insert(0, memo);
+  }
+
+  // Incidents (UC-11)
+  @override
+  Future<List<IncidentReportModel>> getIncidents({
+    String? reporterId,
+    String? workareaId,
+    String? status,
+  }) async {
+    var list = _incidents;
     if (reporterId != null && reporterId.isNotEmpty) {
-      return _incidents.where((i) => i.reporterId == reporterId).toList();
+      list = list.where((i) => i.reporterId == reporterId).toList();
     }
-    return List.unmodifiable(_incidents);
+    if (workareaId != null && workareaId.isNotEmpty && workareaId != 'all') {
+      list = list.where((i) => i.workareaId == workareaId).toList();
+    }
+    if (status != null && status.isNotEmpty && status != 'all') {
+      list = list.where((i) => i.status == status).toList();
+    }
+    return List.unmodifiable(list);
   }
 
   @override
@@ -227,7 +385,74 @@ class MockRepository implements DataRepository {
   Future<void> resolveIncident(String reportId) async {
     final idx = _incidents.indexWhere((i) => i.reportId == reportId);
     if (idx != -1) {
-      _incidents[idx] = _incidents[idx].copyWith(status: 'resolved');
+      _incidents[idx] = _incidents[idx].copyWith(status: 'resolved', resolvedAt: DateTime.now());
+    }
+  }
+
+  @override
+  Future<void> settleIncidentLocally(
+    String reportId, {
+    required String supervisorId,
+    required String supervisorName,
+    required String notes,
+  }) async {
+    final idx = _incidents.indexWhere((i) => i.reportId == reportId);
+    if (idx != -1) {
+      _incidents[idx] = _incidents[idx].copyWith(
+        status: 'settled_locally',
+        settledBy: supervisorName,
+        settledAt: DateTime.now(),
+        supervisorNotes: notes,
+      );
+    }
+  }
+
+  @override
+  Future<void> escalateIncidentToAdmin(
+    String reportId, {
+    required String supervisorId,
+    required String supervisorName,
+    required String notes,
+  }) async {
+    final idx = _incidents.indexWhere((i) => i.reportId == reportId);
+    if (idx != -1) {
+      final current = _incidents[idx];
+      _incidents[idx] = current.copyWith(
+        status: 'escalated_to_admin',
+        isEscalated: true,
+        supervisorNotes: notes,
+      );
+
+      // Notify Admin
+      _broadcasts.insert(
+        0,
+        BroadcastModel(
+          notificationId: 'esc-${DateTime.now().millisecondsSinceEpoch}',
+          senderId: supervisorId,
+          recipients: 'Central Admin',
+          subject: 'Escalated Worker Issue: ${current.reportedName} (${current.issueType})',
+          message: 'Supervisor $supervisorName escalated field incident for worker ${current.reportedName}.\nSupervisor Remarks: $notes\nOriginal Description: ${current.description}',
+          isConfidential: true,
+          deliveredCount: 1,
+          sentAt: DateTime.now(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> resolveIncidentByAdmin(
+    String reportId, {
+    required String adminId,
+    required String resolutionNotes,
+  }) async {
+    final idx = _incidents.indexWhere((i) => i.reportId == reportId);
+    if (idx != -1) {
+      _incidents[idx] = _incidents[idx].copyWith(
+        status: 'resolved',
+        resolvedAt: DateTime.now(),
+        adminResolutionNotes: resolutionNotes,
+      );
     }
   }
 }

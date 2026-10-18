@@ -12,135 +12,42 @@ class AppHeader extends ConsumerWidget {
     this.onOpenMobileMenu,
   });
 
-  String _getPageTitle(String nav) {
-    switch (nav) {
-      case 'dashboard':
-        return 'System Overview';
-      case 'employees':
-        return 'Personnel Directory';
-      case 'work-areas':
-        return 'Work Areas & Geofences';
-      case 'attendance':
-        return 'Attendance Records';
-      case 'accomplishments':
-        return 'Field Accomplishment Proofs';
-      case 'leaves':
-        return 'Leave Requests';
-      case 'incidents':
-        return 'Worker Incident Reports';
-      case 'reports':
-        return 'Analytical Reports';
-      case 'notifications':
-        return 'Alerts & Broadcasts';
-      case 'profile':
-        return 'System Profile & Settings';
-      default:
-        return 'BantayGawa';
-    }
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final activeNav = ref.watch(activeNavProvider);
     final currentUser = ref.watch(currentUserProvider);
-    final alertsAsync = ref.watch(alertsProvider);
-    final alertsCount = alertsAsync.value?.where((a) => a.severity == 'critical' && !a.isResolved).length ?? 0;
-
     final isMobile = MediaQuery.of(context).size.width < 900;
 
     return Container(
-      height: 70,
+      height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 24),
       decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(
-          bottom: BorderSide(color: AppColors.border, width: 1),
-        ),
+        color: AppColors.scaffoldBackground,
       ),
       child: Row(
         children: [
+          // Mobile Hamburger Drawer Toggle (only shown on small screens)
           if (isMobile) ...[
             IconButton(
               icon: const Icon(Icons.menu, color: AppColors.textPrimary),
               onPressed: onOpenMobileMenu,
             ),
-            const SizedBox(width: 8),
           ],
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                _getPageTitle(activeNav),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              if (currentUser.role == UserRole.supervisor)
-                Text(
-                  'Scoped Area: ${currentUser.assignedAreaName ?? "Assigned Sector"}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.accentBlue,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-            ],
-          ),
+
           const Spacer(),
 
-          // Search Field
-          if (!isMobile)
-            Container(
-              width: 260,
-              height: 40,
-              margin: const EdgeInsets.only(right: 16),
-              child: TextField(
-                onChanged: (val) {
-                  ref.read(globalSearchProvider.notifier).state = val;
-                },
-                decoration: InputDecoration(
-                  hintText: 'Search records...',
-                  prefixIcon: const Icon(Icons.search, size: 18, color: AppColors.textMuted),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                  filled: true,
-                  fillColor: AppColors.surfaceSubtle,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide.none,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
+          // Profile Icon & Menu with Full Account Functionality
+          PopupMenuButton<String>(
+            tooltip: 'Account & Profile',
+            offset: const Offset(0, 44),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: AppColors.border),
             ),
-
-          // Role Switcher Button
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: currentUser.role == UserRole.admin ? AppColors.statusOptimalBg : AppColors.warningBg,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: PopupMenuButton<UserRole>(
-              tooltip: 'Switch testing role',
-              initialValue: currentUser.role,
-              onSelected: (UserRole selectedRole) {
-                if (selectedRole == UserRole.admin) {
-                  ref.read(currentUserProvider.notifier).state = UserModel(
-                    userId: 'user-admin-1',
-                    username: 'admin_enro',
-                    firstName: 'Roberto',
-                    lastName: 'Del Rosario',
-                    contactNumber: '+63 917 111 0001',
-                    role: UserRole.admin,
-                    status: 'active',
-                  );
-                } else {
+            onSelected: (val) {
+              if (val == 'profile') {
+                ref.read(activeNavProvider.notifier).state = 'profile';
+              } else if (val == 'switch_role') {
+                if (currentUser.role == UserRole.admin) {
                   ref.read(currentUserProvider.notifier).state = UserModel(
                     userId: 'user-sup-1',
                     username: 'sup_juan',
@@ -152,98 +59,112 @@ class AppHeader extends ConsumerWidget {
                     assignedAreaId: 'area-1',
                     assignedAreaName: 'Ormoc City Hall Zone',
                   );
+                } else {
+                  ref.read(currentUserProvider.notifier).state = UserModel(
+                    userId: 'user-admin-1',
+                    username: 'admin_enro',
+                    firstName: 'Roberto',
+                    lastName: 'Del Rosario',
+                    contactNumber: '+63 917 111 0001',
+                    role: UserRole.admin,
+                    status: 'active',
+                  );
                 }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: UserRole.admin,
-                  child: Row(
-                    children: [
-                      Icon(Icons.admin_panel_settings, size: 18, color: AppColors.primaryNavy),
-                      SizedBox(width: 8),
-                      Text('Admin Mode (Full Access)'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: UserRole.supervisor,
-                  child: Row(
-                    children: [
-                      Icon(Icons.shield_outlined, size: 18, color: AppColors.accentBlue),
-                      SizedBox(width: 8),
-                      Text('Field Supervisor (Scoped)'),
-                    ],
-                  ),
-                ),
-              ],
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    currentUser.role == UserRole.admin ? Icons.admin_panel_settings : Icons.shield_outlined,
-                    size: 14,
-                    color: currentUser.role == UserRole.admin ? AppColors.statusOptimalText : AppColors.warningText,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    currentUser.role == UserRole.admin ? 'Role: ADMIN' : 'Role: SUPERVISOR',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: currentUser.role == UserRole.admin ? AppColors.statusOptimalText : AppColors.warningText,
+              } else if (val == 'logout') {
+                ref.read(activeNavProvider.notifier).state = 'login';
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                enabled: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      currentUser.fullName,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(
-                    Icons.arrow_drop_down,
-                    size: 16,
-                    color: currentUser.role == UserRole.admin ? AppColors.statusOptimalText : AppColors.warningText,
-                  ),
-                ],
+                    Text(
+                      '${currentUser.roleDisplayName} • ENRO',
+                      style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 16),
-
-          // Notification Bell
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.notifications_none_outlined, color: AppColors.textSecondary),
-                onPressed: () {
-                  ref.read(activeNavProvider.notifier).state = 'notifications';
-                },
-              ),
-              if (alertsCount > 0)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: AppColors.brightRed,
-                      shape: BoxShape.circle,
-                    ),
-                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                    child: Text(
-                      '$alertsCount',
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline_rounded, size: 18, color: AppColors.textSecondary),
+                    SizedBox(width: 10),
+                    Text('My Profile'),
+                  ],
                 ),
+              ),
+              PopupMenuItem(
+                value: 'switch_role',
+                child: Row(
+                  children: [
+                    const Icon(Icons.swap_horiz_rounded, size: 18, color: AppColors.accentBlue),
+                    const SizedBox(width: 10),
+                    Text(
+                      currentUser.role == UserRole.admin ? 'Switch to Supervisor View' : 'Switch to Admin View',
+                      style: const TextStyle(color: AppColors.accentBlue, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout_rounded, size: 18, color: AppColors.brightRed),
+                    SizedBox(width: 10),
+                    Text('Sign Out', style: TextStyle(color: AppColors.brightRed)),
+                  ],
+                ),
+              ),
             ],
-          ),
-          const SizedBox(width: 12),
-
-          // User Avatar Pill
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: AppColors.primaryNavy,
-            child: Text(
-              currentUser.initials,
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: AppColors.border),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: AppColors.primaryNavy,
+                      child: Text(
+                        currentUser.initials,
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      currentUser.fullName,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: AppColors.textMuted),
+                    const SizedBox(width: 2),
+                  ],
+                ),
+              ),
             ),
           ),
         ],

@@ -9,6 +9,7 @@ import '../models/leave_request_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
+import '../models/location_tracking_model.dart';
 
 // Master Repository Provider
 final dataRepositoryProvider = Provider<DataRepository>((ref) {
@@ -58,6 +59,17 @@ class GlobalSearchNotifier extends Notifier<String> {
 
 final globalSearchProvider = NotifierProvider<GlobalSearchNotifier, String>(GlobalSearchNotifier.new);
 
+// Selected Alert Category Filter (Riverpod 3 NotifierProvider)
+class AlertCategoryFilterNotifier extends Notifier<String> {
+  @override
+  String build() => 'all';
+
+  @override
+  set state(String value) => super.state = value;
+}
+
+final alertCategoryFilterProvider = NotifierProvider<AlertCategoryFilterNotifier, String>(AlertCategoryFilterNotifier.new);
+
 // Data Providers (Auto-refreshable)
 final workAreasProvider = FutureProvider.autoDispose<List<WorkAreaModel>>((ref) async {
   final repo = ref.watch(dataRepositoryProvider);
@@ -96,7 +108,13 @@ final leaveRequestsProvider = FutureProvider.autoDispose<List<LeaveRequestModel>
 
 final alertsProvider = FutureProvider.autoDispose<List<AlertModel>>((ref) async {
   final repo = ref.watch(dataRepositoryProvider);
-  return repo.getAlerts();
+  final category = ref.watch(alertCategoryFilterProvider);
+  return repo.getAlerts(category: category);
+});
+
+final locationBreadcrumbsProvider = FutureProvider.autoDispose.family<List<LocationTrackingModel>, String?>((ref, workerId) async {
+  final repo = ref.watch(dataRepositoryProvider);
+  return repo.getLocationBreadcrumbs(userId: workerId);
 });
 
 final broadcastsProvider = FutureProvider.autoDispose<List<BroadcastModel>>((ref) async {
@@ -107,6 +125,9 @@ final broadcastsProvider = FutureProvider.autoDispose<List<BroadcastModel>>((ref
 final incidentsProvider = FutureProvider.autoDispose<List<IncidentReportModel>>((ref) async {
   final repo = ref.watch(dataRepositoryProvider);
   final user = ref.watch(currentUserProvider);
-  final repId = user.role == UserRole.supervisor ? user.userId : null;
-  return repo.getIncidents(reporterId: repId);
+  if (user.role == UserRole.supervisor) {
+    return repo.getIncidents(workareaId: user.assignedAreaId);
+  }
+  return repo.getIncidents();
 });
+

@@ -13,6 +13,9 @@ class LeaveRequestModel {
   final String? adminDecision;
   final DateTime? decisionAt;
   final String? rejectionReason;
+  final String? supervisorEndorsement;
+  final String? endorsedBy;
+  final DateTime? endorsedAt;
   final bool isSynced;
 
   LeaveRequestModel({
@@ -30,6 +33,9 @@ class LeaveRequestModel {
     this.adminDecision,
     this.decisionAt,
     this.rejectionReason,
+    this.supervisorEndorsement,
+    this.endorsedBy,
+    this.endorsedAt,
     this.isSynced = true,
   });
 
@@ -58,6 +64,9 @@ class LeaveRequestModel {
     String? adminDecision,
     DateTime? decisionAt,
     String? rejectionReason,
+    String? supervisorEndorsement,
+    String? endorsedBy,
+    DateTime? endorsedAt,
     bool? isSynced,
   }) {
     return LeaveRequestModel(
@@ -75,6 +84,9 @@ class LeaveRequestModel {
       adminDecision: adminDecision ?? this.adminDecision,
       decisionAt: decisionAt ?? this.decisionAt,
       rejectionReason: rejectionReason ?? this.rejectionReason,
+      supervisorEndorsement: supervisorEndorsement ?? this.supervisorEndorsement,
+      endorsedBy: endorsedBy ?? this.endorsedBy,
+      endorsedAt: endorsedAt ?? this.endorsedAt,
       isSynced: isSynced ?? this.isSynced,
     );
   }

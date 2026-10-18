@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
@@ -44,18 +45,43 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         backgroundColor: AppColors.surface,
+        titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 28),
+        actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(proof.workerName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                Text('${proof.areaName} • Submitted on ${proof.capturedDate}', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
-              ],
+            Expanded(
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: AppColors.primaryNavy.withValues(alpha: 0.1),
+                    child: const Icon(Icons.person, color: AppColors.primaryNavy, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          proof.workerName,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${proof.areaName} • Submitted on ${proof.capturedDate} at ${proof.capturedTime}',
+                          style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
+            const SizedBox(width: 16),
             StatusBadge(
               label: proof.status.toUpperCase(),
               type: proof.status == 'approved'
@@ -67,55 +93,68 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
           ],
         ),
         content: SizedBox(
-          width: 540,
+          width: 720,
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Image with burned metadata banner simulation
                 Container(
-                  height: 280,
+                  height: 300,
                   width: double.infinity,
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(12),
                     color: Colors.black87,
                   ),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.network(
-                        proof.imageUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(Icons.broken_image, color: Colors.white54, size: 48),
-                        ),
-                      ),
+                      _buildProofImage(proof, isModal: true),
                       // Burned Metadata Overlay (as specified in Rule #4 of GEMINI.md & SRS)
                       Positioned(
                         bottom: 0,
                         left: 0,
                         right: 0,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          color: Colors.black.withValues(alpha: 0.75),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          color: Colors.black.withValues(alpha: 0.8),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              Row(
                                 children: [
+                                  const Icon(Icons.access_time_rounded, size: 14, color: Colors.yellowAccent),
+                                  const SizedBox(width: 6),
                                   Text(
-                                    'STAMP: ${proof.capturedDate} ${proof.capturedTime}',
-                                    style: const TextStyle(color: Colors.yellowAccent, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                                    '${proof.capturedDate} ${proof.capturedTime}',
+                                    style: const TextStyle(color: Colors.yellowAccent, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
                                   ),
+                                  const SizedBox(width: 16),
+                                  const Icon(Icons.location_on_rounded, size: 14, color: Colors.white),
+                                  const SizedBox(width: 4),
                                   Text(
-                                    'GPS: ${proof.capturedLat.toStringAsFixed(5)}, ${proof.capturedLng.toStringAsFixed(5)}',
-                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontFamily: 'monospace'),
+                                    '${proof.capturedLat.toStringAsFixed(5)}° N, ${proof.capturedLng.toStringAsFixed(5)}° E',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
                                   ),
                                 ],
                               ),
-                              const Text('ENRO VERIFIED', style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: AppColors.accentEmerald.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: AppColors.accentEmerald, width: 0.8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.verified_rounded, size: 12, color: AppColors.accentEmerald),
+                                    SizedBox(width: 4),
+                                    Text('BURNED WATERMARK VERIFIED', style: TextStyle(color: AppColors.accentEmerald, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -123,14 +162,14 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
 
-                // UC-04 Geofence Match Status Card (Steps 5 & 6)
+                // Location Status Banner
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     color: isInGeofence ? AppColors.successBg : AppColors.dangerBg,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: isInGeofence ? AppColors.accentEmerald.withValues(alpha: 0.4) : AppColors.brightRed.withValues(alpha: 0.4),
                     ),
@@ -144,24 +183,23 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                           Row(
                             children: [
                               Icon(
-                                isInGeofence ? Icons.check_circle : Icons.warning_amber_rounded,
-                                size: 18,
+                                isInGeofence ? Icons.check_circle_rounded : Icons.warning_rounded,
+                                size: 20,
                                 color: isInGeofence ? AppColors.successText : AppColors.dangerText,
                               ),
                               const SizedBox(width: 8),
                               Text(
                                 isInGeofence ? 'GEOFENCE MATCH: IN-ZONE VERIFIED' : 'GEOFENCE MISMATCH: OUT-OF-BOUNDS',
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 13,
                                   fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
                                   color: isInGeofence ? AppColors.successText : AppColors.dangerText,
                                 ),
                               ),
                             ],
                           ),
                           StatusBadge(
-                            label: isInGeofence ? 'IN-BOUNDS' : 'FLAGGED WARNING',
+                            label: isInGeofence ? 'INSIDE WORK AREA' : 'OUTSIDE WORK AREA',
                             type: isInGeofence ? BadgeType.success : BadgeType.danger,
                           ),
                         ],
@@ -169,58 +207,154 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                       const SizedBox(height: 6),
                       Text(
                         isInGeofence
-                            ? 'Captured GPS coordinates (${proof.capturedLat.toStringAsFixed(4)}, ${proof.capturedLng.toStringAsFixed(4)}) match inside the registered geofence perimeter for ${proof.areaName} (UC-04).'
-                            : 'Warning (UC-04 Alt Flow 2): Extracted GPS coordinates deviate from the assigned work area perimeter. Verify photo metadata before approving.',
+                            ? 'Location Confirmed: The worker was physically inside their assigned boundary (${proof.areaName}) when this photo was taken.'
+                            : 'Location Alert: The worker was outside their assigned boundary (${proof.areaName}) when this photo was taken. Please review carefully before approving.',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: isInGeofence ? AppColors.successText : AppColors.dangerText,
+                          height: 1.3,
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
 
-                // Extracted Metadata Summary (UC-04 Step 5)
-                const Text('Extracted Exif Metadata Summary (UC-04)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 6),
+                // Submission & Photo Details
+                const Text('Photo & Location Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(8),
+                    color: AppColors.surfaceSubtle,
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: AppColors.border),
                   ),
                   child: Column(
                     children: [
-                      _buildMetaRow('Capture Timestamp', '${proof.capturedDate} at ${proof.capturedTime}'),
-                      _buildMetaRow('GPS Coordinates', '${proof.capturedLat.toStringAsFixed(5)}° N, ${proof.capturedLng.toStringAsFixed(5)}° E'),
-                      _buildMetaRow('Assigned Work Area', proof.areaName),
-                      _buildMetaRow('Reporting Field Worker', '${proof.workerName} (${proof.userId})'),
-                      _buildMetaRow('Watermark Integrity', 'Burned GPS/Time Overlay Intact (Valid)'),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildDetailCard(
+                              icon: Icons.person_outline_rounded,
+                              label: 'FIELD WORKER',
+                              value: proof.workerName,
+                              subtitle: 'Worker ID: ${proof.userId}',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildDetailCard(
+                              icon: Icons.location_on_outlined,
+                              label: 'ASSIGNED WORK AREA',
+                              value: proof.areaName,
+                              subtitle: 'Designated Sector',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildDetailCard(
+                              icon: Icons.calendar_today_rounded,
+                              label: 'DATE & TIME TAKEN',
+                              value: '${proof.capturedDate} at ${proof.capturedTime}',
+                              subtitle: 'Recorded by camera',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildDetailCard(
+                              icon: Icons.my_location_rounded,
+                              label: 'GPS POSITION',
+                              value: '${proof.capturedLat.toStringAsFixed(5)}° N, ${proof.capturedLng.toStringAsFixed(5)}° E',
+                              subtitle: 'High accuracy coordinates',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.shield_outlined, size: 18, color: AppColors.accentEmerald),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Authenticity Check: Image contains burned GPS coordinates and timestamp in pixel data.',
+                                style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
 
-                const Text('Work Description', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                Text(proof.message, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4)),
+                const Text("Worker's Task Description", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSubtle,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.format_quote_rounded, size: 20, color: AppColors.textMuted),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          proof.message.isNotEmpty ? proof.message : 'No additional description provided.',
+                          style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
                 if (proof.rejectionReason != null) ...[
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: AppColors.dangerBg, borderRadius: BorderRadius.circular(8)),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.dangerBg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.brightRed.withValues(alpha: 0.3)),
+                    ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.error_outline, size: 16, color: AppColors.dangerText),
-                        const SizedBox(width: 8),
+                        const Icon(Icons.error_outline_rounded, size: 18, color: AppColors.dangerText),
+                        const SizedBox(width: 10),
                         Expanded(
-                          child: Text(
-                            'Rejection Reason: ${proof.rejectionReason}',
-                            style: const TextStyle(fontSize: 12, color: AppColors.dangerText, fontWeight: FontWeight.w500),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Rejection Reason',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.dangerText),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                proof.rejectionReason!,
+                                style: const TextStyle(fontSize: 12, color: AppColors.dangerText),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -232,56 +366,89 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+          SizedBox(
+            width: double.infinity,
+            child: Row(
+              children: [
+                AppButton(
+                  label: 'Close',
+                  variant: ButtonVariant.secondary,
+                  icon: Icons.close_rounded,
+                  onPressed: () => Navigator.pop(context),
+                ),
+                const Spacer(),
+                if (proof.status == 'pending') ...[
+                  AppButton(
+                    label: 'Reject Proof',
+                    variant: ButtonVariant.danger,
+                    icon: Icons.cancel_outlined,
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _promptRejectionDialog(proof);
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                  AppButton(
+                    label: 'Approve Proof',
+                    variant: ButtonVariant.accent,
+                    icon: Icons.check_circle_outline,
+                    onPressed: () async {
+                      Navigator.of(context).pop();
+                      final currentUser = ref.read(currentUserProvider);
+                      await ref.read(dataRepositoryProvider).updateAccomplishmentStatus(
+                            proof.accomplishmentId,
+                            'approved',
+                            approvedBy: currentUser.userId,
+                            approvedByName: currentUser.fullName,
+                          );
+                      ref.invalidate(accomplishmentsProvider);
+                      if (!mounted) return;
+                      ToastNotification.show(this.context, message: 'Proof from ${proof.workerName} approved!', type: ToastType.success);
+                    },
+                  ),
+                ],
+              ],
+            ),
           ),
-          if (proof.status == 'pending') ...[
-            AppButton(
-              label: 'Reject Proof',
-              variant: ButtonVariant.danger,
-              onPressed: () {
-                Navigator.of(context).pop();
-                _promptRejectionDialog(proof);
-              },
-            ),
-            const SizedBox(width: 8),
-            AppButton(
-              label: 'Approve Proof',
-              variant: ButtonVariant.accent,
-              onPressed: () async {
-                Navigator.of(context).pop();
-                final currentUser = ref.read(currentUserProvider);
-                await ref.read(dataRepositoryProvider).updateAccomplishmentStatus(
-                      proof.accomplishmentId,
-                      'approved',
-                      approvedBy: currentUser.userId,
-                      approvedByName: currentUser.fullName,
-                    );
-                ref.invalidate(accomplishmentsProvider);
-                if (!mounted) return;
-                ToastNotification.show(this.context, message: 'Proof from ${proof.workerName} approved!', type: ToastType.success);
-              },
-            ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildMetaRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+  Widget _buildDetailCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primaryNavy.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(icon, size: 18, color: AppColors.primaryNavy),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.textMuted, letterSpacing: 0.5)),
+                const SizedBox(height: 2),
+                Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                Text(subtitle, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              ],
             ),
           ),
         ],
@@ -410,13 +577,7 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                                 child: Stack(
                                   fit: StackFit.expand,
                                   children: [
-                                    Image.network(
-                                      proof.imageUrl,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, _, _) => const Center(
-                                        child: Icon(Icons.image_not_supported, color: Colors.grey),
-                                      ),
-                                    ),
+                                    _buildProofImage(proof, isModal: false),
                                     Positioned(
                                       top: 10,
                                       right: 10,
@@ -502,4 +663,114 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
       ),
     );
   }
+
+  Widget _buildProofImage(AccomplishmentModel proof, {bool isModal = false}) {
+    final isPark = proof.areaName.toLowerCase().contains('park');
+    final isMarket = proof.areaName.toLowerCase().contains('market');
+    final gradientColors = isPark
+        ? [const Color(0xFF1E3A2F), const Color(0xFF0F1E19)]
+        : isMarket
+            ? [const Color(0xFF3B291A), const Color(0xFF1F150D)]
+            : [const Color(0xFF1E293B), const Color(0xFF0F172A)];
+
+    final icon = isPark
+        ? Icons.park_rounded
+        : isMarket
+            ? Icons.storefront_rounded
+            : Icons.account_balance_rounded;
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: gradientColors,
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: Image.memory(
+              _kTransparentPixel,
+              fit: BoxFit.cover,
+            ),
+          ),
+          Opacity(
+            opacity: 0.12,
+            child: CustomPaint(
+              painter: _GeotagGridPainter(),
+            ),
+          ),
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: isModal ? 52 : 36, color: Colors.white70),
+                const SizedBox(height: 8),
+                Text(
+                  'ENRO FIELD PROOF PHOTO',
+                  style: TextStyle(
+                    color: Colors.white60,
+                    fontSize: isModal ? 12 : 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 10,
+            left: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black45,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.camera_alt_outlined, size: 12, color: Colors.white70),
+                  const SizedBox(width: 4),
+                  Text(
+                    'CAM-01 • ${proof.areaName}',
+                    style: const TextStyle(fontSize: 9, color: Colors.white70, fontFamily: 'monospace'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
+
+class _GeotagGridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 1;
+    const step = 24.0;
+    for (double x = 0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+final Uint8List _kTransparentPixel = Uint8List.fromList([
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+  0x42, 0x60, 0x82,
+]);

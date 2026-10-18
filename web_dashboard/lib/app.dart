@@ -15,6 +15,7 @@ import 'features/incidents/incidents_view.dart';
 import 'features/reports/reports_view.dart';
 import 'features/notifications/notifications_view.dart';
 import 'features/profile/profile_view.dart';
+import 'features/settings/settings_view.dart';
 
 class BantayGawaAppShell extends ConsumerStatefulWidget {
   const BantayGawaAppShell({super.key});
@@ -48,6 +49,8 @@ class _BantayGawaAppShellState extends ConsumerState<BantayGawaAppShell> {
         return const NotificationsView();
       case 'profile':
         return const ProfileView();
+      case 'settings':
+        return const SettingsView();
       default:
         return const DashboardView();
     }

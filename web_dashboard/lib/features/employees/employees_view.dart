@@ -27,241 +27,332 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
     final contactController = TextEditingController();
     UserRole role = UserRole.worker;
 
-    final workAreas = ref.read(workAreasProvider).value ?? [];
-    String? areaId = workAreas.isNotEmpty ? workAreas.first.workareaId : null;
-    String? areaName = workAreas.isNotEmpty ? workAreas.first.name : 'Unassigned';
-
     bool faceCaptured = false;
     String? faceEmbedding;
 
-    ConfirmationDialog.show(
-      context,
-      title: 'Register New Personnel (UC-01)',
-      message: 'Create a system account with facial biometric enrollment and QR code generation.',
-      confirmLabel: 'Register & Enroll Account',
-      contentWidget: StatefulBuilder(
-        builder: (context, setDialogState) {
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Text('First Name', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                              const Text(' *', style: TextStyle(color: AppColors.brightRed)),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          TextField(
-                            controller: firstController,
-                            decoration: const InputDecoration(hintText: 'e.g. Juan'),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Text('Last Name', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                              const Text(' *', style: TextStyle(color: AppColors.brightRed)),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          TextField(
-                            controller: lastController,
-                            decoration: const InputDecoration(hintText: 'e.g. Dela Cruz'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                const Text('Username (Optional)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 6),
-                TextField(controller: usernameController, decoration: const InputDecoration(hintText: 'e.g. worker_juan')),
-                const SizedBox(height: 12),
-                const Text('Contact Number', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 6),
-                TextField(controller: contactController, decoration: const InputDecoration(hintText: '+63 918 000 0000')),
-                const SizedBox(height: 12),
-                const Text('Role', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 6),
-                DropdownButtonFormField<UserRole>(
-                  initialValue: role,
-                  items: const [
-                    DropdownMenuItem(value: UserRole.worker, child: Text('Field Worker')),
-                    DropdownMenuItem(value: UserRole.supervisor, child: Text('Field Supervisor')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setDialogState(() => role = val);
-                  },
-                  decoration: const InputDecoration(),
-                ),
-                const SizedBox(height: 12),
-                const Text('Assigned Work Area (Dynamic)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 6),
-                DropdownButtonFormField<String?>(
-                  initialValue: areaId,
-                  items: [
-                    const DropdownMenuItem<String?>(
-                      value: null,
-                      child: Text('Unassigned / Workforce Pool'),
-                    ),
-                    ...workAreas.map((area) => DropdownMenuItem<String?>(
-                          value: area.workareaId,
-                          child: Text(area.name),
-                        )),
-                  ],
-                  onChanged: (val) {
-                    setDialogState(() {
-                      areaId = val;
-                      if (val == null) {
-                        areaName = null;
-                      } else {
-                        final found = workAreas.where((a) => a.workareaId == val);
-                        areaName = found.isNotEmpty ? found.first.name : null;
-                      }
-                    });
-                  },
-                  decoration: const InputDecoration(),
-                ),
-                const SizedBox(height: 16),
-
-                // UC-01 Biometric Face Registration Section
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: faceCaptured ? AppColors.successBg : AppColors.surface,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: faceCaptured ? AppColors.accentEmerald : AppColors.border,
-                      width: faceCaptured ? 1.5 : 1.0,
-                    ),
-                  ),
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              backgroundColor: AppColors.surface,
+              surfaceTintColor: Colors.transparent,
+              child: Container(
+                width: 680,
+                padding: const EdgeInsets.all(28),
+                child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        alignment: WrapAlignment.spaceBetween,
-                        crossAxisAlignment: WrapCrossAlignment.center,
+                      // Header with Title & Close
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                faceCaptured ? Icons.check_circle : Icons.face_retouching_natural,
-                                size: 18,
-                                color: faceCaptured ? AppColors.successText : AppColors.accentBlue,
-                              ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Biometric Facial Enrollment',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                            ],
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Register New Personnel',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.textPrimary,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Create a system account with facial biometric enrollment and credential token.',
+                                  style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+                                ),
+                              ],
+                            ),
                           ),
-                          StatusBadge(
-                            label: faceCaptured ? 'EMBEDDING STORED' : 'PENDING CAPTURE',
-                            type: faceCaptured ? BadgeType.success : BadgeType.neutral,
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
+                            onPressed: () => Navigator.of(context).pop(),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        faceCaptured
-                            ? '512-dimension MobileFaceNet feature vector successfully generated and ready for biometric verification.'
-                            : 'Capture or upload an official frontal portrait to extract facial embeddings for mobile biometric attendance (UC-01).',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: faceCaptured ? AppColors.successText : AppColors.textMuted,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 6,
-                        crossAxisAlignment: WrapCrossAlignment.center,
+                      const SizedBox(height: 18),
+                      const Divider(height: 1, color: AppColors.border),
+                      const SizedBox(height: 20),
+
+                      // First & Last Name Side by Side
+                      Row(
                         children: [
-                          ElevatedButton.icon(
-                            icon: Icon(faceCaptured ? Icons.refresh : Icons.camera_alt_outlined, size: 14),
-                            label: Text(faceCaptured ? 'Retake Biometrics' : 'Capture / Upload Face'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: faceCaptured ? Colors.white : AppColors.accentBlue,
-                              foregroundColor: faceCaptured ? AppColors.accentEmerald : Colors.white,
-                              side: faceCaptured ? const BorderSide(color: AppColors.accentEmerald) : BorderSide.none,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Text('First Name', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                    Text(' *', style: TextStyle(color: AppColors.brightRed)),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                TextField(
+                                  controller: firstController,
+                                  decoration: const InputDecoration(hintText: 'e.g. Juan'),
+                                ),
+                              ],
                             ),
-                            onPressed: () {
-                              setDialogState(() {
-                                faceCaptured = true;
-                                faceEmbedding = 'TFLite_MobileFaceNet_512d_${DateTime.now().millisecondsSinceEpoch}';
-                              });
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Text('Last Name', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                    Text(' *', style: TextStyle(color: AppColors.brightRed)),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                TextField(
+                                  controller: lastController,
+                                  decoration: const InputDecoration(hintText: 'e.g. Dela Cruz'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Username & Contact Number Side by Side
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Username (Optional)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 6),
+                                TextField(controller: usernameController, decoration: const InputDecoration(hintText: 'e.g. worker_juan')),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Contact Number', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 6),
+                                TextField(controller: contactController, decoration: const InputDecoration(hintText: '+63 918 000 0000')),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Role Dropdown with Clean Padding and Icons
+                      const Text('Role', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<UserRole>(
+                            value: role,
+                            isExpanded: true,
+                            icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                            items: const [
+                              DropdownMenuItem(
+                                value: UserRole.worker,
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 4),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.badge_outlined, size: 16, color: AppColors.textMuted),
+                                      SizedBox(width: 10),
+                                      Text('Field Worker'),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              DropdownMenuItem(
+                                value: UserRole.supervisor,
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 4),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.admin_panel_settings_outlined, size: 16, color: AppColors.textMuted),
+                                      SizedBox(width: 10),
+                                      Text('Field Supervisor'),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) setDialogState(() => role = val);
                             },
                           ),
-                          if (faceCaptured)
-                            const Text(
-                              'Vector: [0.142, -0.089, ... 512d]',
-                              style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppColors.successText),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Biometric Face Registration Section
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: faceCaptured ? AppColors.successBg : AppColors.surfaceSubtle,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: faceCaptured ? AppColors.accentEmerald : AppColors.border,
+                            width: faceCaptured ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      faceCaptured ? Icons.check_circle_rounded : Icons.face_retouching_natural_rounded,
+                                      size: 18,
+                                      color: faceCaptured ? AppColors.successText : AppColors.accentBlue,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Biometric Facial Enrollment',
+                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                    ),
+                                  ],
+                                ),
+                                StatusBadge(
+                                  label: faceCaptured ? 'EMBEDDING STORED' : 'PENDING CAPTURE',
+                                  type: faceCaptured ? BadgeType.success : BadgeType.neutral,
+                                ),
+                              ],
                             ),
+                            const SizedBox(height: 8),
+                            Text(
+                              faceCaptured
+                                  ? '512-dimension MobileFaceNet feature vector successfully generated and ready for biometric verification.'
+                                  : 'Capture or upload an official frontal portrait to extract facial embeddings for mobile biometric attendance.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: faceCaptured ? AppColors.successText : AppColors.textMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 6,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                ElevatedButton.icon(
+                                  icon: Icon(faceCaptured ? Icons.refresh : Icons.camera_alt_outlined, size: 14),
+                                  label: Text(faceCaptured ? 'Retake Biometrics' : 'Capture / Upload Face'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: faceCaptured ? Colors.white : AppColors.accentBlue,
+                                    foregroundColor: faceCaptured ? AppColors.accentEmerald : Colors.white,
+                                    side: faceCaptured ? const BorderSide(color: AppColors.accentEmerald) : BorderSide.none,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () {
+                                    setDialogState(() {
+                                      faceCaptured = true;
+                                      faceEmbedding = 'TFLite_MobileFaceNet_512d_${DateTime.now().millisecondsSinceEpoch}';
+                                    });
+                                  },
+                                ),
+                                if (faceCaptured)
+                                  const Text(
+                                    'Vector: [0.142, -0.089, ... 512d]',
+                                    style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppColors.successText),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Dialog Buttons: Cancel on Left, Register on Right
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          AppButton(
+                            label: 'Cancel',
+                            variant: ButtonVariant.outline,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                          AppButton(
+                            label: 'Register & Enroll Account',
+                            variant: ButtonVariant.primary,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            onPressed: () async {
+                              if (firstController.text.trim().isEmpty || lastController.text.trim().isEmpty) {
+                                ToastNotification.show(context, message: 'Please fill in required name fields.', type: ToastType.error);
+                                return;
+                              }
+
+                              final generatedQrToken = 'BW-ORMC-${DateTime.now().millisecondsSinceEpoch}';
+                              final newUser = UserModel(
+                                userId: 'user-w-${DateTime.now().millisecondsSinceEpoch}',
+                                username: usernameController.text.trim().isNotEmpty
+                                    ? usernameController.text.trim()
+                                    : '${firstController.text.trim().toLowerCase()}_${lastController.text.trim().toLowerCase()}',
+                                firstName: firstController.text.trim(),
+                                lastName: lastController.text.trim(),
+                                contactNumber: contactController.text.trim().isNotEmpty ? contactController.text.trim() : '+63 900 000 0000',
+                                qrToken: generatedQrToken,
+                                role: role,
+                                status: 'active',
+                                assignedAreaId: null,
+                                assignedAreaName: 'Unassigned',
+                                faceEmbedding: faceEmbedding ?? (faceCaptured ? 'TFLite_MobileFaceNet_512d_sample' : null),
+                                creditScore: 100,
+                              );
+
+                              await ref.read(dataRepositoryProvider).addUser(newUser);
+                              ref.invalidate(employeesProvider);
+                              if (context.mounted) {
+                                Navigator.of(context).pop();
+                                ToastNotification.show(
+                                  context,
+                                  message: 'Personnel ${newUser.fullName} registered with QR Code ($generatedQrToken)!',
+                                  type: ToastType.success,
+                                );
+                              }
+                            },
+                          ),
                         ],
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          );
-        },
-      ),
-      onConfirm: () async {
-        if (firstController.text.trim().isEmpty || lastController.text.trim().isEmpty) {
-          ToastNotification.show(context, message: 'Please fill in required name fields.', type: ToastType.error);
-          return;
-        }
-
-        final generatedQrToken = 'BW-ORMC-${DateTime.now().millisecondsSinceEpoch}';
-        final newUser = UserModel(
-          userId: 'user-w-${DateTime.now().millisecondsSinceEpoch}',
-          username: usernameController.text.trim().isNotEmpty
-              ? usernameController.text.trim()
-              : '${firstController.text.trim().toLowerCase()}_${lastController.text.trim().toLowerCase()}',
-          firstName: firstController.text.trim(),
-          lastName: lastController.text.trim(),
-          contactNumber: contactController.text.trim().isNotEmpty ? contactController.text.trim() : '+63 900 000 0000',
-          qrToken: generatedQrToken,
-          role: role,
-          status: 'active',
-          assignedAreaId: areaId,
-          assignedAreaName: areaName,
-          faceEmbedding: faceEmbedding ?? (faceCaptured ? 'TFLite_MobileFaceNet_512d_sample' : null),
-          creditScore: 100,
+              ),
+            );
+          },
         );
-
-        await ref.read(dataRepositoryProvider).addUser(newUser);
-        ref.invalidate(employeesProvider);
-        if (mounted) {
-          ToastNotification.show(
-            context,
-            message: 'Personnel ${newUser.fullName} registered with QR Code ($generatedQrToken)!',
-            type: ToastType.success,
-          );
-        }
       },
     );
   }
@@ -352,7 +443,7 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                 ),
               ),
               const SizedBox(height: 14),
-              const Text('Digital QR Credential & Biometrics (UC-01 / UC-14)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+              const Text('Digital QR Credential & Biometrics', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -395,7 +486,7 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                             ],
                           ),
                           const SizedBox(height: 4),
-                          const Text('Field workers scan this QR on Android app for first-time login (UC-14).', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                          const Text('Field workers scan this QR on Android app for first-time login.', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
                         ],
                       ),
                     ),
@@ -495,159 +586,272 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
           AppCard(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Icon(Icons.filter_list, size: 18, color: AppColors.textMuted),
-                const SizedBox(width: 8),
-                const Text('Filter by Area:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                const SizedBox(width: 12),
-                DropdownButton<String>(
-                  value: _selectedAreaFilter,
-                  underline: const SizedBox(),
-                  items: const [
-                    DropdownMenuItem(value: 'all', child: Text('All Work Areas')),
-                    DropdownMenuItem(value: 'area-1', child: Text('Ormoc City Hall Zone')),
-                    DropdownMenuItem(value: 'area-2', child: Text('Ormoc Public Market')),
-                    DropdownMenuItem(value: 'area-3', child: Text('Ormoc Bus Terminal')),
-                    DropdownMenuItem(value: 'area-4', child: Text('Centennial Park Zone')),
-                  ],
-                  onChanged: (val) {
-                    if (val != null) setState(() => _selectedAreaFilter = val);
-                  },
+                Text(
+                  '${filteredEmployees.length} registered personnel',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                 ),
-                const Spacer(),
-                Text('${filteredEmployees.length} registered personnel', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.filter_list_rounded, size: 16, color: AppColors.textMuted),
+                    const SizedBox(width: 6),
+                    const Text('Filter by Area:', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                    const SizedBox(width: 8),
+                    Container(
+                      height: 36,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedAreaFilter,
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppColors.textSecondary),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                          items: const [
+                            DropdownMenuItem(value: 'all', child: Text('All Work Areas')),
+                            DropdownMenuItem(value: 'area-1', child: Text('Ormoc City Hall Zone')),
+                            DropdownMenuItem(value: 'area-2', child: Text('Ormoc Public Market')),
+                            DropdownMenuItem(value: 'area-3', child: Text('Ormoc Bus Terminal')),
+                            DropdownMenuItem(value: 'area-4', child: Text('Centennial Park Zone')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) setState(() => _selectedAreaFilter = val);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
 
-          // Directory Table
+          // Directory Table (Stretched across full width)
           Expanded(
             child: AppCard(
               padding: EdgeInsets.zero,
-              child: SingleChildScrollView(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                  horizontalMargin: 20,
-                  columnSpacing: 24,
-                  columns: const [
-                    DataColumn(label: Text('PERSONNEL', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('ROLE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('ASSIGNED AREA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('SCHEDULE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('CREDIT SCORE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('STATUS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                    DataColumn(label: Text('ACTIONS', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold))),
-                  ],
-                  rows: filteredEmployees.map((emp) {
-                    return DataRow(
-                      cells: [
-                        DataCell(
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 14,
-                                backgroundColor: AppColors.primaryNavy,
-                                child: Text(emp.initials, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                              ),
-                              const SizedBox(width: 10),
-                              Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(emp.fullName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary)),
-                                  Text(emp.contactNumber, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        DataCell(
-                          StatusBadge(
-                            label: emp.roleDisplayName,
-                            type: emp.role == UserRole.admin
-                                ? BadgeType.optimal
-                                : emp.role == UserRole.supervisor
-                                    ? BadgeType.neutral
-                                    : BadgeType.neutral,
-                          ),
-                        ),
-                        DataCell(Text(emp.assignedAreaName ?? 'Unassigned', style: const TextStyle(fontSize: 13))),
-                        DataCell(Text(emp.schedule, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary))),
-                        DataCell(
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: emp.creditScore >= 80
-                                  ? AppColors.successBg
-                                  : emp.creditScore >= 50
-                                      ? AppColors.warningBg
-                                      : AppColors.dangerBg,
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '★ ${emp.creditScore}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: emp.creditScore >= 80
-                                    ? AppColors.successText
-                                    : emp.creditScore >= 50
-                                        ? AppColors.warningText
-                                        : AppColors.dangerText,
-                              ),
-                            ),
-                          ),
-                        ),
-                        DataCell(
-                          StatusBadge(
-                            label: emp.status,
-                            type: emp.status == 'active' ? BadgeType.success : BadgeType.danger,
-                          ),
-                        ),
-                        DataCell(
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.visibility_outlined, size: 18, color: AppColors.accentBlue),
-                                tooltip: 'View Profile',
-                                onPressed: () => _showEmployeeDetailsModal(emp),
-                              ),
-                              if (currentUser.role == UserRole.admin)
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.brightRed),
-                                  tooltip: 'Delete User',
-                                  onPressed: () {
-                                    ConfirmationDialog.show(
-                                      context,
-                                      title: 'Delete User Account',
-                                      message: 'Are you sure you want to delete ${emp.fullName}? This will revoke system access.',
-                                      confirmLabel: 'Delete',
-                                      confirmVariant: ButtonVariant.danger,
-                                      onConfirm: () async {
-                                        await ref.read(dataRepositoryProvider).deleteUser(emp.userId);
-                                        ref.invalidate(employeesProvider);
-                                        if (context.mounted) {
-                                          ToastNotification.show(context, message: 'User ${emp.fullName} removed.', type: ToastType.info);
-                                        }
-                                      },
-                                    );
-                                  },
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const minWidth = 1100.0;
+                  final isWide = constraints.maxWidth >= minWidth;
+
+                  Widget tableWidget = Table(
+                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                    columnWidths: const {
+                            0: FlexColumnWidth(2.5), // PERSONNEL
+                            1: FlexColumnWidth(1.6), // ROLE
+                            2: FlexColumnWidth(1.8), // ASSIGNED AREA
+                            3: FlexColumnWidth(1.8), // SCHEDULE
+                            4: FlexColumnWidth(1.2), // CREDIT SCORE
+                            5: FlexColumnWidth(1.1), // STATUS
+                            6: FlexColumnWidth(1.0), // ACTIONS
+                          },
+                          children: [
+                            TableRow(
+                              decoration: const BoxDecoration(
+                                color: AppColors.surfaceSubtle,
+                                border: Border(
+                                  bottom: BorderSide(color: AppColors.border, width: 1),
                                 ),
-                            ],
-                          ),
-                        ),
-                      ],
+                              ),
+                              children: [
+                                _buildHeaderCell('PERSONNEL'),
+                                _buildHeaderCell('ROLE'),
+                                _buildHeaderCell('ASSIGNED AREA'),
+                                _buildHeaderCell('SCHEDULE'),
+                                _buildHeaderCell('CREDIT SCORE'),
+                                _buildHeaderCell('STATUS'),
+                                _buildHeaderCell('ACTIONS'),
+                              ],
+                            ),
+                            ...filteredEmployees.map((emp) {
+                              return TableRow(
+                                decoration: const BoxDecoration(
+                                  border: Border(
+                                    bottom: BorderSide(color: AppColors.borderSubtle, width: 1),
+                                  ),
+                                ),
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      children: [
+                                        CircleAvatar(
+                                          radius: 14,
+                                          backgroundColor: AppColors.primaryNavy,
+                                          child: Text(
+                                            emp.initials,
+                                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                emp.fullName,
+                                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              Text(
+                                                emp.contactNumber,
+                                                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: StatusBadge(
+                                        label: emp.roleDisplayName,
+                                        type: emp.role == UserRole.admin
+                                            ? BadgeType.optimal
+                                            : BadgeType.neutral,
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Text(
+                                      emp.assignedAreaName ?? 'Unassigned',
+                                      style: const TextStyle(fontSize: 13, color: AppColors.textPrimary),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Text(
+                                      emp.schedule,
+                                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: emp.creditScore >= 80
+                                              ? AppColors.successBg
+                                              : emp.creditScore >= 50
+                                                  ? AppColors.warningBg
+                                                  : AppColors.dangerBg,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          '★ ${emp.creditScore}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: emp.creditScore >= 80
+                                                ? AppColors.successText
+                                                : emp.creditScore >= 50
+                                                    ? AppColors.warningText
+                                                    : AppColors.dangerText,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: StatusBadge(
+                                        label: emp.status,
+                                        type: emp.status == 'active' ? BadgeType.success : BadgeType.danger,
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.visibility_outlined, size: 18, color: AppColors.accentBlue),
+                                          tooltip: 'View Profile',
+                                          onPressed: () => _showEmployeeDetailsModal(emp),
+                                        ),
+                                        if (currentUser.role == UserRole.admin)
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.brightRed),
+                                            tooltip: 'Delete User',
+                                            onPressed: () {
+                                              ConfirmationDialog.show(
+                                                context,
+                                                title: 'Delete User Account',
+                                                message: 'Are you sure you want to delete ${emp.fullName}? This will revoke system access.',
+                                                confirmLabel: 'Delete',
+                                                confirmVariant: ButtonVariant.danger,
+                                                onConfirm: () async {
+                                                  await ref.read(dataRepositoryProvider).deleteUser(emp.userId);
+                                                  ref.invalidate(employeesProvider);
+                                                  if (context.mounted) {
+                                                    ToastNotification.show(context, message: 'User ${emp.fullName} removed.', type: ToastType.info);
+                                                  }
+                                                },
+                                              );
+                                            },
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }),
+                          ],
+                        );
+
+                  if (!isWide) {
+                    tableWidget = SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: SizedBox(
+                        width: minWidth,
+                        child: tableWidget,
+                      ),
                     );
-                  }).toList(),
-                ),
-                ),
+                  }
+
+                  return SingleChildScrollView(
+                    child: tableWidget,
+                  );
+                },
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderCell(String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textMuted,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }

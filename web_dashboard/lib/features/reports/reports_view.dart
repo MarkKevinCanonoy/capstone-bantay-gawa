@@ -8,6 +8,7 @@ import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/toast_notification.dart';
+import '../../core/widgets/confirmation_dialog.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/work_area_model.dart';
 import '../../data/models/attendance_model.dart';
@@ -244,7 +245,11 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
         ? rawWorkAreas.where((a) => a.supervisorId == currentUser.userId).toList()
         : rawWorkAreas;
 
-    final availableWorkers = rawEmployees.where((u) => u.role == UserRole.worker).toList();
+    final availableWorkers = currentUser.role == UserRole.supervisor
+        ? rawEmployees
+            .where((u) => u.role == UserRole.worker && availableAreas.any((a) => a.workareaId == u.assignedAreaId))
+            .toList()
+        : rawEmployees.where((u) => u.role == UserRole.worker).toList();
 
     final effectiveRange = _computeEffectiveDateRange();
     final rangeStartDay = DateTime(effectiveRange.start.year, effectiveRange.start.month, effectiveRange.start.day);
@@ -286,6 +291,150 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
       areas: filteredAreas,
       workers: filteredWorkers,
       accomplishments: filteredAccomplishments,
+    );
+  }
+
+  void _showSendReportToAdminDialog() {
+    final currentUser = ref.read(currentUserProvider);
+    final filtered = _getFilteredData();
+    final noteController = TextEditingController();
+
+    int recordCount = 0;
+    if (_selectedReportType == 'attendance') {
+      recordCount = filtered.attendance.length;
+    } else if (_selectedReportType == 'area_performance') {
+      recordCount = filtered.areas.length;
+    } else if (_selectedReportType == 'worker_performance') {
+      recordCount = filtered.workers.length;
+    } else {
+      recordCount = filtered.accomplishments.length;
+    }
+
+    final typeLabel = _selectedReportType == 'attendance'
+        ? 'Attendance Summary'
+        : _selectedReportType == 'area_performance'
+            ? 'Area Performance'
+            : _selectedReportType == 'worker_performance'
+                ? 'Worker Performance'
+                : 'Accomplishment Report';
+
+    ConfirmationDialog.show(
+      context,
+      title: 'Send Report Copy to Admin',
+      message: 'Transmit an official supervisory report audit copy to Central Administration.',
+      confirmLabel: 'Send to Admin',
+      confirmVariant: ButtonVariant.primary,
+      contentWidget: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.statusOptimalBg,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.accentBlue.withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Report Type:', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        typeLabel,
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Date Horizon:', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _getDateRangeLabel(),
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Sector Scope:', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _selectedArea == 'all'
+                            ? (currentUser.assignedAreaName ?? 'Assigned Sectors')
+                            : _selectedArea,
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.accentBlue),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Compiled Records:', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '$recordCount records',
+                        textAlign: TextAlign.end,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text('Transmittal Remarks / Audit Notes (Optional)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: noteController,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'e.g. Verified 100% on-site completion for morning shift. Requesting review for relief shift staffing.',
+            ),
+          ),
+        ],
+      ),
+      onConfirm: () async {
+        final note = noteController.text.trim();
+        final summary = '$typeLabel (${_getDateRangeLabel()}) — $recordCount records compiled.';
+        await ref.read(dataRepositoryProvider).sendReportToAdmin(
+              reportType: typeLabel,
+              summary: summary,
+              note: note.isNotEmpty ? note : null,
+              supervisorId: currentUser.userId,
+              supervisorName: currentUser.fullName,
+            );
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'Report transmittal memo sent to Central Admin.',
+            type: ToastType.success,
+          );
+        }
+      },
     );
   }
 
@@ -504,12 +653,12 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Analytical Reports & Exports (UC-05)', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                    const Text('Analytical Reports & Exports', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
                     const SizedBox(height: 4),
                     Text(
                       currentUser.role == UserRole.admin
                           ? 'Generate, preview, and download compliance audits across all Ormoc sectors.'
-                          : 'Attendance summaries and worker logs scoped to your assigned work areas (UC-05).',
+                          : 'Attendance summaries and worker logs scoped to your assigned work areas.',
                       style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
                     ),
                   ],
@@ -518,6 +667,15 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
               const SizedBox(width: 16),
               Row(
                 children: [
+                  if (currentUser.role == UserRole.supervisor) ...[
+                    AppButton(
+                      label: 'Send Report to Admin',
+                      icon: Icons.send_outlined,
+                      variant: ButtonVariant.secondary,
+                      onPressed: _showSendReportToAdminDialog,
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   AppButton(
                     label: 'Export CSV / Excel',
                     icon: Icons.table_chart_outlined,
@@ -537,7 +695,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
           ),
           const SizedBox(height: 20),
 
-          // Filters Card (UC-05 Step 3)
+          // Filters Card
           AppCard(
             padding: const EdgeInsets.all(16),
             child: Wrap(
@@ -550,7 +708,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Report Type (SRS)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
+                      const Text('Report Category', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         key: ValueKey('report_type_$_selectedReportType'),
@@ -565,17 +723,19 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                         onChanged: (val) {
                           if (val != null) setState(() => _selectedReportType = val);
                         },
-                        decoration: const InputDecoration(),
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        ),
                       ),
                     ],
                   ),
                 ),
                 SizedBox(
-                  width: 200,
+                  width: 210,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Date Horizon / Range', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
+                      const Text('Date Range', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         key: ValueKey('date_range_$_selectedDateRange'),
@@ -596,7 +756,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                           if (val == null) return;
                           setState(() => _selectedDateRange = val);
                         },
-                        decoration: const InputDecoration(),
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        ),
                       ),
                     ],
                   ),
@@ -620,7 +782,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                           onChanged: (val) {
                             if (val != null) setState(() => _selectedMonth = val);
                           },
-                          decoration: const InputDecoration(),
+                          decoration: const InputDecoration(
+                            contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          ),
                         ),
                       ],
                     ),
@@ -644,7 +808,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                           onChanged: (val) {
                             if (val != null) setState(() => _selectedYear = val);
                           },
-                          decoration: const InputDecoration(),
+                          decoration: const InputDecoration(
+                            contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          ),
                         ),
                       ],
                     ),
@@ -671,7 +837,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                           onChanged: (val) {
                             if (val != null) setState(() => _selectedWeek = val);
                           },
-                          decoration: const InputDecoration(),
+                          decoration: const InputDecoration(
+                            contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          ),
                         ),
                       ],
                     ),
@@ -764,7 +932,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Work Area (Dynamic)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
+                      const Text('Work Area / Sector', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         key: ValueKey('area_$_selectedArea'),
@@ -778,7 +946,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                               )),
                         ],
                         onChanged: (val) => setState(() => _selectedArea = val!),
-                        decoration: const InputDecoration(),
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        ),
                       ),
                     ],
                   ),
@@ -788,7 +958,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Worker Filter (Dynamic)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
+                      const Text('Field Worker', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
                       const SizedBox(height: 6),
                       DropdownButtonFormField<String>(
                         key: ValueKey('worker_$_selectedWorker'),
@@ -802,7 +972,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                               )),
                         ],
                         onChanged: (val) => setState(() => _selectedWorker = val!),
-                        decoration: const InputDecoration(),
+                        decoration: const InputDecoration(
+                          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        ),
                       ),
                     ],
                   ),
@@ -853,7 +1025,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
           ),
           const SizedBox(height: 10),
 
-          // Preview Table / Empty State (UC-05 Step 4 & Alt Flow 2)
+          // Preview Table / Empty State
           Expanded(
             child: AppCard(
               padding: EdgeInsets.zero,
@@ -867,7 +1039,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                             const Icon(Icons.search_off_outlined, size: 48, color: AppColors.textMuted),
                             const SizedBox(height: 12),
                             const Text(
-                              'No records found matching the selected filter criteria (UC-05).',
+                              'No records found matching the selected filter criteria.',
                               style: TextStyle(fontSize: 14, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(height: 4),
@@ -879,21 +1051,52 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                         ),
                       ),
                     )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SingleChildScrollView(
-                        child: _buildReportTable(
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        const minWidth = 1000.0;
+                        final isWide = constraints.maxWidth >= minWidth;
+
+                        Widget tableWidget = _buildReportTable(
                           _selectedReportType,
                           filteredAttendance,
                           filteredAreas,
                           filteredWorkers,
                           filteredAccomplishments,
-                        ),
-                      ),
+                        );
+
+                        if (!isWide) {
+                          tableWidget = SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SizedBox(
+                              width: minWidth,
+                              child: tableWidget,
+                            ),
+                          );
+                        }
+
+                        return SingleChildScrollView(
+                          child: tableWidget,
+                        );
+                      },
                     ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildHeaderCell(String label) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: AppColors.textMuted,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
@@ -906,124 +1109,366 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     List<AccomplishmentModel> accomplishments,
   ) {
     if (reportType == 'area_performance') {
-      return DataTable(
-        horizontalMargin: 20,
-        columnSpacing: 24,
-        columns: const [
-          DataColumn(label: Text('WORK AREA', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('SUPERVISOR', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('ASSIGNED PERSONNEL', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('STATUS', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('CALCULATED BOUNDARY', style: TextStyle(fontWeight: FontWeight.bold))),
-        ],
-        rows: areas.map((a) {
-          return DataRow(
-            cells: [
-              DataCell(Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600))),
-              DataCell(Text(a.supervisorName)),
-              DataCell(Text('${a.assignedCount} Active Workers')),
-              DataCell(StatusBadge(label: a.status.toUpperCase(), type: a.status.toLowerCase() == 'active' ? BadgeType.success : BadgeType.neutral)),
-              DataCell(Text(a.areaSqKm)),
+      return Table(
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        columnWidths: const {
+          0: FlexColumnWidth(2.2), // WORK AREA
+          1: FlexColumnWidth(2.0), // SUPERVISOR
+          2: FlexColumnWidth(1.8), // ASSIGNED PERSONNEL
+          3: FlexColumnWidth(1.3), // STATUS
+          4: FlexColumnWidth(1.6), // CALCULATED BOUNDARY
+        },
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(
+              color: AppColors.surfaceSubtle,
+              border: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+            ),
+            children: [
+              _buildHeaderCell('WORK AREA'),
+              _buildHeaderCell('SUPERVISOR'),
+              _buildHeaderCell('ASSIGNED PERSONNEL'),
+              _buildHeaderCell('STATUS'),
+              _buildHeaderCell('CALCULATED BOUNDARY'),
             ],
-          );
-        }).toList(),
+          ),
+          ...areas.map((a) {
+            return TableRow(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.borderSubtle, width: 1)),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.accentBlue.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(Icons.location_on_outlined, size: 16, color: AppColors.accentBlue),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(a.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text(a.supervisorName, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text('${a.assignedCount} Active Workers', style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: StatusBadge(
+                      label: a.status.toUpperCase(),
+                      type: a.status.toLowerCase() == 'active' ? BadgeType.success : BadgeType.neutral,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text(a.areaSqKm, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
+                ),
+              ],
+            );
+          }),
+        ],
       );
     }
 
     if (reportType == 'worker_performance') {
-      return DataTable(
-        horizontalMargin: 20,
-        columnSpacing: 24,
-        columns: const [
-          DataColumn(label: Text('WORKER NAME', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('ASSIGNED AREA', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('CREDIT SCORE', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('STANDING LEVEL', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('SCHEDULE', style: TextStyle(fontWeight: FontWeight.bold))),
-        ],
-        rows: workers.map((w) {
-          return DataRow(
-            cells: [
-              DataCell(Text(w.fullName, style: const TextStyle(fontWeight: FontWeight.w600))),
-              DataCell(Text(w.assignedAreaName ?? 'Unassigned')),
-              DataCell(Text('${w.creditScore} / 100', style: const TextStyle(fontWeight: FontWeight.bold))),
-              DataCell(StatusBadge(
-                label: w.creditScore >= 80 ? 'OPTIMAL' : w.creditScore >= 50 ? 'WARNING' : 'CRITICAL',
-                type: w.creditScore >= 80 ? BadgeType.success : w.creditScore >= 50 ? BadgeType.warning : BadgeType.danger,
-              )),
-              DataCell(Text(w.schedule)),
+      return Table(
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        columnWidths: const {
+          0: FlexColumnWidth(2.2), // WORKER NAME
+          1: FlexColumnWidth(2.0), // ASSIGNED AREA
+          2: FlexColumnWidth(1.4), // CREDIT SCORE
+          3: FlexColumnWidth(1.5), // STANDING LEVEL
+          4: FlexColumnWidth(1.6), // SCHEDULE
+        },
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(
+              color: AppColors.surfaceSubtle,
+              border: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+            ),
+            children: [
+              _buildHeaderCell('WORKER NAME'),
+              _buildHeaderCell('ASSIGNED AREA'),
+              _buildHeaderCell('CREDIT SCORE'),
+              _buildHeaderCell('STANDING LEVEL'),
+              _buildHeaderCell('SCHEDULE'),
             ],
-          );
-        }).toList(),
+          ),
+          ...workers.map((w) {
+            return TableRow(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.borderSubtle, width: 1)),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: AppColors.accentBlue,
+                        child: Text(
+                          w.initials,
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(w.fullName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                            Text(w.username, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text(w.assignedAreaName ?? 'Unassigned', style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text('${w.creditScore} / 100', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: StatusBadge(
+                      label: w.creditScore >= 80 ? 'OPTIMAL' : w.creditScore >= 50 ? 'WARNING' : 'CRITICAL',
+                      type: w.creditScore >= 80 ? BadgeType.success : w.creditScore >= 50 ? BadgeType.warning : BadgeType.danger,
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text(w.schedule, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                ),
+              ],
+            );
+          }),
+        ],
       );
     }
 
     if (reportType == 'accomplishments') {
-      return DataTable(
-        horizontalMargin: 20,
-        columnSpacing: 24,
-        columns: const [
-          DataColumn(label: Text('FIELD WORKER', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('WORK AREA', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('DATE & TIME', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('BURNED GPS', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('STATUS', style: TextStyle(fontWeight: FontWeight.bold))),
-        ],
-        rows: accomplishments.map((acc) {
-          return DataRow(
-            cells: [
-              DataCell(Text(acc.workerName, style: const TextStyle(fontWeight: FontWeight.w600))),
-              DataCell(Text(acc.areaName)),
-              DataCell(Text('${acc.capturedDate} ${acc.capturedTime}')),
-              DataCell(Text('${acc.capturedLat.toStringAsFixed(4)}, ${acc.capturedLng.toStringAsFixed(4)}', style: const TextStyle(fontFamily: 'monospace'))),
-              DataCell(StatusBadge(
-                label: acc.status.toUpperCase(),
-                type: acc.status == 'approved' ? BadgeType.success : acc.status == 'denied' ? BadgeType.danger : BadgeType.warning,
-              )),
+      return Table(
+        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+        columnWidths: const {
+          0: FlexColumnWidth(2.2), // FIELD WORKER
+          1: FlexColumnWidth(2.0), // WORK AREA
+          2: FlexColumnWidth(1.8), // DATE & TIME
+          3: FlexColumnWidth(2.0), // BURNED GPS
+          4: FlexColumnWidth(1.4), // STATUS
+        },
+        children: [
+          TableRow(
+            decoration: const BoxDecoration(
+              color: AppColors.surfaceSubtle,
+              border: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+            ),
+            children: [
+              _buildHeaderCell('FIELD WORKER'),
+              _buildHeaderCell('WORK AREA'),
+              _buildHeaderCell('DATE & TIME'),
+              _buildHeaderCell('BURNED GPS'),
+              _buildHeaderCell('STATUS'),
             ],
-          );
-        }).toList(),
+          ),
+          ...accomplishments.map((acc) {
+            return TableRow(
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.borderSubtle, width: 1)),
+              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 14,
+                        backgroundColor: AppColors.accentEmerald,
+                        child: Text(
+                          acc.workerName.isNotEmpty ? acc.workerName[0] : 'W',
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(acc.workerName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text(acc.areaName, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Text('${acc.capturedDate} ${acc.capturedTime}', style: const TextStyle(fontSize: 12, color: AppColors.textPrimary)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.pin_drop_outlined, size: 14, color: AppColors.accentBlue),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${acc.capturedLat.toStringAsFixed(4)}, ${acc.capturedLng.toStringAsFixed(4)}',
+                        style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppColors.textPrimary),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: StatusBadge(
+                      label: acc.status.toUpperCase(),
+                      type: acc.status == 'approved' ? BadgeType.success : acc.status == 'denied' ? BadgeType.danger : BadgeType.warning,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }),
+        ],
       );
     }
 
     // Default: Attendance Summary
-    return DataTable(
-      horizontalMargin: 20,
-      columnSpacing: 24,
-      columns: const [
-        DataColumn(label: Text('WORKER NAME', style: TextStyle(fontWeight: FontWeight.bold))),
-        DataColumn(label: Text('SECTOR', style: TextStyle(fontWeight: FontWeight.bold))),
-        DataColumn(label: Text('TIME-IN', style: TextStyle(fontWeight: FontWeight.bold))),
-        DataColumn(label: Text('TIME-OUT', style: TextStyle(fontWeight: FontWeight.bold))),
-        DataColumn(label: Text('GEOFENCE ACCURACY', style: TextStyle(fontWeight: FontWeight.bold))),
-        DataColumn(label: Text('AUDIT VERIFICATION', style: TextStyle(fontWeight: FontWeight.bold))),
-      ],
-      rows: attendance.map((log) {
-        return DataRow(
-          cells: [
-            DataCell(Text(log.workerName, style: const TextStyle(fontWeight: FontWeight.w600))),
-            DataCell(Text(log.areaName)),
-            DataCell(Text(log.timeIn)),
-            DataCell(Text(log.timeOut)),
-            DataCell(
-              Row(
-                children: [
-                  Icon(
-                    log.hasWarning ? Icons.cancel_outlined : Icons.check_circle_outline,
-                    color: log.hasWarning ? AppColors.brightRed : Colors.green,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(log.hasWarning ? 'Out-of-Bounds' : '100% In-Zone'),
-                ],
-              ),
-            ),
-            DataCell(
-              Text(log.isVerified ? 'Verified by Supervisor' : 'Pending Audit', style: TextStyle(color: log.isVerified ? Colors.green : AppColors.warningText, fontWeight: FontWeight.w600)),
-            ),
+    return Table(
+      defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+      columnWidths: const {
+        0: FlexColumnWidth(2.2), // WORKER NAME
+        1: FlexColumnWidth(2.0), // SECTOR
+        2: FlexColumnWidth(1.2), // TIME-IN
+        3: FlexColumnWidth(1.2), // TIME-OUT
+        4: FlexColumnWidth(1.8), // GEOFENCE ACCURACY
+        5: FlexColumnWidth(1.8), // AUDIT VERIFICATION
+      },
+      children: [
+        TableRow(
+          decoration: const BoxDecoration(
+            color: AppColors.surfaceSubtle,
+            border: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
+          ),
+          children: [
+            _buildHeaderCell('WORKER NAME'),
+            _buildHeaderCell('SECTOR'),
+            _buildHeaderCell('TIME-IN'),
+            _buildHeaderCell('TIME-OUT'),
+            _buildHeaderCell('GEOFENCE ACCURACY'),
+            _buildHeaderCell('AUDIT VERIFICATION'),
           ],
-        );
-      }).toList(),
+        ),
+        ...attendance.map((log) {
+          return TableRow(
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppColors.borderSubtle, width: 1)),
+            ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 14,
+                      backgroundColor: AppColors.primaryNavy,
+                      child: Text(
+                        log.workerName.isNotEmpty ? log.workerName[0] : 'W',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(log.workerName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                          if (log.workerEmpId.isNotEmpty)
+                            Text(log.workerEmpId, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Text(log.areaName, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Text(log.timeIn, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Text(log.timeOut, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      log.hasWarning ? Icons.cancel_outlined : Icons.check_circle_outline,
+                      color: log.hasWarning ? AppColors.brightRed : Colors.green,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        log.hasWarning ? 'Out-of-Bounds' : '100% In-Zone',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: log.hasWarning ? AppColors.brightRed : Colors.green.shade800,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: StatusBadge(
+                    label: log.isVerified ? 'VERIFIED' : 'PENDING AUDIT',
+                    type: log.isVerified ? BadgeType.success : BadgeType.warning,
+                    icon: log.isVerified ? Icons.verified_user_outlined : Icons.hourglass_empty_rounded,
+                  ),
+                ),
+              ),
+            ],
+          );
+        }),
+      ],
     );
   }
 }

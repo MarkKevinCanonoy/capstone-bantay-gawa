@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:web_dashboard/features/attendance/attendance_view.dart';
 import 'package:web_dashboard/features/dashboard/dashboard_view.dart';
 import 'package:web_dashboard/features/notifications/notifications_view.dart';
 import 'package:web_dashboard/features/work_areas/work_areas_view.dart';
@@ -126,7 +127,7 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.textContaining('WORKFORCE ROSTER'), findsOneWidget);
     expect(find.text('Priority: Unassigned workers listed first'), findsOneWidget);
-    expect(find.byIcon(Icons.share_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.share_outlined), findsNothing);
 
     // Test Search by First Name: "Danilo"
     await tester.enterText(find.byType(TextField), 'Danilo');
@@ -150,13 +151,61 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Danilo Ocampo'), findsOneWidget);
 
-    // Tap Share Roster button
-    await tester.tap(find.byIcon(Icons.share_outlined));
-    await tester.pumpAndSettle();
-
     // Tap Done to close modal
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AttendanceView renders stretched table and filter bar with swapped records count and sector dropdown', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: AttendanceView(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify Title & Subtitle
+    expect(find.text('Attendance Verification'), findsOneWidget);
+    expect(find.text('Daily on-device face recognition logs and geofence validation records.'), findsOneWidget);
+
+    // Verify Filter bar has records count and Sector: dropdown
+    expect(find.textContaining('attendance records'), findsOneWidget);
+    expect(find.text('Sector:'), findsOneWidget);
+
+    // Verify stretched Table headers
+    expect(find.text('WORKER'), findsOneWidget);
+    expect(find.text('WORK AREA'), findsOneWidget);
+    expect(find.text('TIME-IN'), findsOneWidget);
+    expect(find.text('BREAK-IN'), findsOneWidget);
+    expect(find.text('BREAK-OUT'), findsOneWidget);
+    expect(find.text('TIME-OUT'), findsOneWidget);
+    expect(find.text('FACE MATCH'), findsOneWidget);
+    expect(find.text('GEOFENCE'), findsOneWidget);
+    expect(find.text('STATUS'), findsOneWidget);
+    expect(find.text('VERIFY'), findsOneWidget);
+
+    // Verify Table widget is present
+    expect(find.byType(Table), findsOneWidget);
+
+    // Verify attendance records render (e.g. Carlos Mendoza or Elena Reyes)
+    expect(find.text('Carlos Mendoza'), findsWidgets);
+
+    // Test verify action toggle
+    final verifyBtns = find.byTooltip('Mark as Unverified');
+    if (verifyBtns.evaluate().isNotEmpty) {
+      await tester.tap(verifyBtns.first);
+      await tester.pumpAndSettle();
+    }
 
     expect(tester.takeException(), isNull);
   });
