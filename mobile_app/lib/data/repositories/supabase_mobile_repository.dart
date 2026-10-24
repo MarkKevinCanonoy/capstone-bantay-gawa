@@ -44,10 +44,14 @@ class SupabaseMobileRepository implements MobileRepository {
 
     if (isMatch) {
       // Save persistent session
-      await _storage.write(key: _sessionKey, value: registeredWorker.userId);
+      try {
+        await _storage.write(key: _sessionKey, value: registeredWorker.userId);
+      } catch (_) {}
       // Cache user and assigned areas locally in SQLite
-      await LocalDatabase.instance.cacheUser(registeredWorker);
-      await LocalDatabase.instance.cacheWorkAreas(MockData.sampleWorkAreas);
+      try {
+        await LocalDatabase.instance.cacheUser(registeredWorker);
+        await LocalDatabase.instance.cacheWorkAreas(MockData.sampleWorkAreas);
+      } catch (_) {}
       return registeredWorker;
     }
 

@@ -19,11 +19,13 @@ class CurrentUserNotifier extends AsyncNotifier<UserModel?> {
   }
 
   Future<bool> loginWithFace(List<double> faceVector) async {
-    state = const AsyncValue.loading();
     final repo = ref.read(mobileRepositoryProvider);
     final user = await repo.authenticateWithFace(faceVector);
-    state = AsyncValue.data(user);
-    return user != null;
+    if (user != null) {
+      state = AsyncValue.data(user);
+      return true;
+    }
+    return false;
   }
 
   Future<void> logout() async {

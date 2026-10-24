@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/user_model.dart';
 import '../models/work_area_model.dart';
@@ -11,17 +13,39 @@ import '../models/location_tracking_model.dart';
 class LocalDatabase {
   static final LocalDatabase instance = LocalDatabase._init();
   static Database? _database;
+  static bool _useInMemory = false;
+
+  // In-memory fallback stores for desktop preview / testing
+  UserModel? _memUser;
+  List<WorkAreaModel> _memAreas = [];
+  final List<AttendanceModel> _memAttendance = [];
+  final List<AccomplishmentModel> _memAccomplishments = [];
+  final List<LeaveRequestModel> _memLeaves = [];
+  final List<LocationTrackingModel> _memTracking = [];
 
   LocalDatabase._init();
 
-  Future<Database> get database async {
+  Future<Database?> get database async {
+    if (_useInMemory) return null;
     if (_database != null) return _database!;
-    _database = await _initDB('bantay_gawa_offline.db');
-    return _database!;
+    try {
+      _database = await _initDB('bantay_gawa_offline.db');
+      return _database!;
+    } catch (e) {
+      debugPrint('LocalDatabase falling back to in-memory store: $e');
+      _useInMemory = true;
+      return null;
+    }
   }
 
   Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
+    String dbPath;
+    try {
+      dbPath = await getDatabasesPath();
+    } catch (_) {
+      final dir = await getApplicationDocumentsDirectory();
+      dbPath = dir.path;
+    }
     final path = p.join(dbPath, filePath);
 
     return await openDatabase(
@@ -65,7 +89,7 @@ class LocalDatabase {
         gps_lat REAL NOT NULL,
         gps_lng REAL NOT NULL,
         image_path TEXT,
-        face_match INTEGER DEFAULT 1,
+        face_match INTEGER DEFAULT 0,
         is_synced INTEGER DEFAULT 0
       )
     ''');
@@ -115,6 +139,10 @@ class LocalDatabase {
   // --- User Cache ---
   Future<void> cacheUser(UserModel user) async {
     final db = await database;
+    if (db == null) {
+      _memUser = user;
+      return;
+    }
     await db.insert(
       'cached_user',
       {
@@ -134,8 +162,9 @@ class LocalDatabase {
 
   Future<UserModel?> getCachedUser() async {
     final db = await database;
+    if (db == null) return _memUser;
     final results = await db.query('cached_user', limit: 1);
-    if (results.isEmpty) return null;
+    if (results.isEmpty) return _memUser;
     final map = results.first;
     return UserModel(
       userId: map['user_id'] as String,
@@ -153,12 +182,20 @@ class LocalDatabase {
 
   Future<void> clearUserCache() async {
     final db = await database;
+    if (db == null) {
+      _memUser = null;
+      return;
+    }
     await db.delete('cached_user');
   }
 
   // --- Work Areas Cache ---
   Future<void> cacheWorkAreas(List<WorkAreaModel> areas) async {
     final db = await database;
+    if (db == null) {
+      _memAreas = List.from(areas);
+      return;
+    }
     final batch = db.batch();
     batch.delete('cached_work_areas');
     for (final area in areas) {
@@ -176,6 +213,7 @@ class LocalDatabase {
 
   Future<List<WorkAreaModel>> getCachedWorkAreas() async {
     final db = await database;
+    if (db == null) return _memAreas;
     final results = await db.query('cached_work_areas');
     return results.map((m) => WorkAreaModel.fromMap(m)).toList();
   }
@@ -183,6 +221,11 @@ class LocalDatabase {
   // --- Attendance ---
   Future<void> insertAttendance(AttendanceModel attendance) async {
     final db = await database;
+    if (db == null) {
+      _memAttendance.removeWhere((a) => a.attendanceId == attendance.attendanceId);
+      _memAttendance.insert(0, attendance);
+      return;
+    }
     await db.insert(
       'attendance_queue',
       {
@@ -203,18 +246,48 @@ class LocalDatabase {
 
   Future<List<AttendanceModel>> getAllAttendance() async {
     final db = await database;
+    if (db == null) return _memAttendance;
     final results = await db.query('attendance_queue', orderBy: 'timestamp DESC');
     return results.map((m) => AttendanceModel.fromMap(m)).toList();
   }
 
   Future<List<AttendanceModel>> getUnsyncedAttendance() async {
     final db = await database;
+    if (db == null) return _memAttendance.where((a) => !a.isSynced).toList();
     final results = await db.query('attendance_queue', where: 'is_synced = 0');
     return results.map((m) => AttendanceModel.fromMap(m)).toList();
   }
 
   Future<void> markAttendanceSynced(String attendanceId) async {
     final db = await database;
+    if (db == null) {
+      final index = _memAttendance.indexWhere((a) => a.attendanceId == attendanceId);
+      if (index != -1) {
+        final existing = _memAttendance[index];
+        _memAttendance[index] = AttendanceModel(
+          attendanceId: existing.attendanceId,
+          userId: existing.userId,
+          workerName: existing.workerName,
+          workerEmpId: existing.workerEmpId,
+          workareaId: existing.workareaId,
+          areaName: existing.areaName,
+          actionType: existing.actionType,
+          timestamp: existing.timestamp,
+          gpsLat: existing.gpsLat,
+          gpsLng: existing.gpsLng,
+          imageUrl: existing.imageUrl,
+          faceMatch: existing.faceMatch,
+          isSynced: true,
+          isVerified: existing.isVerified,
+          hasWarning: existing.hasWarning,
+          timeIn: existing.timeIn,
+          breakIn: existing.breakIn,
+          breakOut: existing.breakOut,
+          timeOut: existing.timeOut,
+        );
+      }
+      return;
+    }
     await db.update(
       'attendance_queue',
       {'is_synced': 1},
@@ -226,6 +299,11 @@ class LocalDatabase {
   // --- Accomplishments ---
   Future<void> insertAccomplishment(AccomplishmentModel accomplishment) async {
     final db = await database;
+    if (db == null) {
+      _memAccomplishments.removeWhere((a) => a.accomplishmentId == accomplishment.accomplishmentId);
+      _memAccomplishments.insert(0, accomplishment);
+      return;
+    }
     await db.insert(
       'accomplishments_queue',
       {
@@ -247,18 +325,46 @@ class LocalDatabase {
 
   Future<List<AccomplishmentModel>> getAllAccomplishments() async {
     final db = await database;
+    if (db == null) return _memAccomplishments;
     final results = await db.query('accomplishments_queue', orderBy: 'captured_date DESC');
     return results.map((m) => AccomplishmentModel.fromMap(m)).toList();
   }
 
   Future<List<AccomplishmentModel>> getUnsyncedAccomplishments() async {
     final db = await database;
+    if (db == null) return _memAccomplishments.where((a) => !a.isSynced).toList();
     final results = await db.query('accomplishments_queue', where: 'is_synced = 0');
     return results.map((m) => AccomplishmentModel.fromMap(m)).toList();
   }
 
   Future<void> markAccomplishmentSynced(String accomplishmentId) async {
     final db = await database;
+    if (db == null) {
+      final index = _memAccomplishments.indexWhere((a) => a.accomplishmentId == accomplishmentId);
+      if (index != -1) {
+        final existing = _memAccomplishments[index];
+        _memAccomplishments[index] = AccomplishmentModel(
+          accomplishmentId: existing.accomplishmentId,
+          userId: existing.userId,
+          workerName: existing.workerName,
+          workareaId: existing.workareaId,
+          areaName: existing.areaName,
+          imageUrl: existing.imageUrl,
+          capturedDate: existing.capturedDate,
+          capturedTime: existing.capturedTime,
+          capturedLat: existing.capturedLat,
+          capturedLng: existing.capturedLng,
+          message: existing.message,
+          status: existing.status,
+          approvedBy: existing.approvedBy,
+          approvedByName: existing.approvedByName,
+          approvedAt: existing.approvedAt,
+          rejectionReason: existing.rejectionReason,
+          isSynced: true,
+        );
+      }
+      return;
+    }
     await db.update(
       'accomplishments_queue',
       {'is_synced': 1},
@@ -270,6 +376,10 @@ class LocalDatabase {
   // --- Leave Requests ---
   Future<void> insertLeaveRequest(LeaveRequestModel leave) async {
     final db = await database;
+    if (db == null) {
+      _memLeaves.insert(0, leave);
+      return;
+    }
     await db.insert(
       'leave_requests_queue',
       {
@@ -289,6 +399,7 @@ class LocalDatabase {
 
   Future<List<LeaveRequestModel>> getAllLeaveRequests() async {
     final db = await database;
+    if (db == null) return _memLeaves;
     final results = await db.query('leave_requests_queue', orderBy: 'start_date DESC');
     return results.map((m) => LeaveRequestModel.fromMap(m)).toList();
   }
@@ -296,6 +407,10 @@ class LocalDatabase {
   // --- Location Tracking Queue ---
   Future<void> insertLocationTracking(LocationTrackingModel tracking) async {
     final db = await database;
+    if (db == null) {
+      _memTracking.add(tracking);
+      return;
+    }
     await db.insert(
       'location_tracking_queue',
       {
@@ -312,6 +427,11 @@ class LocalDatabase {
 
   Future<int> getPendingSyncCount() async {
     final db = await database;
+    if (db == null) {
+      final att = _memAttendance.where((a) => !a.isSynced).length;
+      final acc = _memAccomplishments.where((a) => !a.isSynced).length;
+      return att + acc;
+    }
     final attCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM attendance_queue WHERE is_synced = 0')) ?? 0;
     final accCount = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM accomplishments_queue WHERE is_synced = 0')) ?? 0;
     return attCount + accCount;

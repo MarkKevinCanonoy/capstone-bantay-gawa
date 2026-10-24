@@ -1,7 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/localization/app_translations.dart';
 import '../../core/localization/locale_provider.dart';
 import '../../core/theme/app_colors.dart';
@@ -9,8 +8,6 @@ import '../../core/utils/liveness_detector.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/toast_notification.dart';
 import '../../data/repositories/mobile_repository_provider.dart';
-import '../onboarding/tutorial_screen.dart';
-import '../shell/worker_shell_view.dart';
 
 class FaceLoginScreen extends ConsumerStatefulWidget {
   const FaceLoginScreen({super.key});
@@ -102,23 +99,6 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
 
       if (success) {
         ToastNotification.showSuccess(context, 'Biometrics verified. Welcome!');
-
-        // Check if first-time user has seen the tutorial
-        const storage = FlutterSecureStorage();
-        final hasSeenTutorial = await storage.read(key: 'bantaygawa_has_seen_tutorial');
-
-        if (!mounted) return;
-        if (hasSeenTutorial != 'true') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const TutorialScreen()),
-          );
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const WorkerShellView()),
-          );
-        }
       } else {
         ToastNotification.showError(context, 'Face not recognized. Please face the camera and try again.');
       }
