@@ -26,4 +26,8 @@ class AppConstants {
   static const String navReports = 'reports';
   static const String navNotifications = 'notifications';
   static const String navProfile = 'profile';
+  // Supabase Configuration (Phase 1 & 2)
+  static const String supabaseUrl = 'https://tltqottawkrpidnijdqo.supabase.co';
+  static const String supabaseAnonKey =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsdHFvdHRhd2tycGlkbmlqZHFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2Nzc4NzYsImV4cCI6MjEwODI1Mzg3Nn0.wAkPP2s1CPQ19pBvGZ4BoAdJaQn3K7e0yUDUnSO0OW4';
 }

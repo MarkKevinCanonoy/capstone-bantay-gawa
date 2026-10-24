@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data_repository.dart';
 import 'mock_repository.dart';
+import 'supabase_repository.dart';
 import '../models/user_model.dart';
 import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
@@ -12,8 +14,14 @@ import '../models/incident_report_model.dart';
 import '../models/location_tracking_model.dart';
 
 // Master Repository Provider
+// Uses SupabaseRepository for live app; MockRepository for headless unit tests
 final dataRepositoryProvider = Provider<DataRepository>((ref) {
-  return MockRepository();
+  try {
+    Supabase.instance.client;
+    return SupabaseRepository();
+  } catch (_) {
+    return MockRepository();
+  }
 });
 
 // Current User State Provider (Riverpod 3 NotifierProvider)
@@ -21,7 +29,7 @@ class CurrentUserNotifier extends Notifier<UserModel> {
   @override
   UserModel build() {
     return UserModel(
-      userId: 'user-admin-1',
+      userId: '11111111-1111-1111-1111-111111111111',
       username: 'admin_enro',
       firstName: 'Roberto',
       lastName: 'Del Rosario',

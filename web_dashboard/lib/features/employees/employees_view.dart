@@ -540,6 +540,7 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
   Widget build(BuildContext context) {
     final currentUser = ref.watch(currentUserProvider);
     final employeesAsync = ref.watch(employeesProvider);
+    final workAreas = ref.watch(workAreasProvider).value ?? [];
     final globalSearch = ref.watch(globalSearchProvider).toLowerCase();
     final employees = employeesAsync.value ?? [];
 
@@ -609,15 +610,14 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                       ),
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
-                          value: _selectedAreaFilter,
+                          value: workAreas.any((a) => a.workareaId == _selectedAreaFilter) || _selectedAreaFilter == 'all'
+                              ? _selectedAreaFilter
+                              : 'all',
                           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppColors.textSecondary),
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                          items: const [
-                            DropdownMenuItem(value: 'all', child: Text('All Work Areas')),
-                            DropdownMenuItem(value: 'area-1', child: Text('Ormoc City Hall Zone')),
-                            DropdownMenuItem(value: 'area-2', child: Text('Ormoc Public Market')),
-                            DropdownMenuItem(value: 'area-3', child: Text('Ormoc Bus Terminal')),
-                            DropdownMenuItem(value: 'area-4', child: Text('Centennial Park Zone')),
+                          items: [
+                            const DropdownMenuItem(value: 'all', child: Text('All Work Areas')),
+                            ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name))),
                           ],
                           onChanged: (val) {
                             if (val != null) setState(() => _selectedAreaFilter = val);

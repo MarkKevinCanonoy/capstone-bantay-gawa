@@ -49,19 +49,19 @@ class AppHeader extends ConsumerWidget {
               } else if (val == 'switch_role') {
                 if (currentUser.role == UserRole.admin) {
                   ref.read(currentUserProvider.notifier).state = UserModel(
-                    userId: 'user-sup-1',
+                    userId: '22222222-2222-2222-2222-222222222222',
                     username: 'sup_juan',
                     firstName: 'Juan',
                     lastName: 'Santos',
                     contactNumber: '+63 917 222 0002',
                     role: UserRole.supervisor,
                     status: 'active',
-                    assignedAreaId: 'area-1',
-                    assignedAreaName: 'Ormoc City Hall Zone',
+                    assignedAreaId: null,
+                    assignedAreaName: null,
                   );
                 } else {
                   ref.read(currentUserProvider.notifier).state = UserModel(
-                    userId: 'user-admin-1',
+                    userId: '11111111-1111-1111-1111-111111111111',
                     username: 'admin_enro',
                     firstName: 'Roberto',
                     lastName: 'Del Rosario',

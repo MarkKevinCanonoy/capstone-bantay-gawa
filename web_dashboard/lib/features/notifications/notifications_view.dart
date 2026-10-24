@@ -449,7 +449,7 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                                 children: [
                                   const Text('Work Area Sector', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
                                   const SizedBox(height: 2),
-                                  Text(alert.workareaName ?? 'Ormoc Sector', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                  Text(alert.workareaName ?? 'Unassigned Area', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                                 ],
                               ),
                             ),
@@ -459,7 +459,7 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                                 children: [
                                   const Text('Area Supervisor', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
                                   const SizedBox(height: 2),
-                                  Text(alert.supervisorName ?? 'Juan Santos', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                                  Text(alert.supervisorName ?? 'Unassigned', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                                 ],
                               ),
                             ),
@@ -930,7 +930,7 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                                                         const Text('SUPERVISOR', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
                                                         const SizedBox(height: 2),
                                                         Text(
-                                                          alert.supervisorName ?? 'Juan Santos',
+                                                          alert.supervisorName ?? 'Unassigned',
                                                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                                                           overflow: TextOverflow.ellipsis,
                                                         ),

@@ -728,7 +728,7 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
                                         const Icon(Icons.location_on_outlined, size: 14, color: AppColors.textMuted),
                                         const SizedBox(width: 4),
                                         Text(
-                                          inc.areaName ?? 'Ormoc City Station',
+                                          (inc.areaName != null && inc.areaName!.isNotEmpty) ? inc.areaName! : 'Field Assignment',
                                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                                         ),
                                         const SizedBox(width: 10),

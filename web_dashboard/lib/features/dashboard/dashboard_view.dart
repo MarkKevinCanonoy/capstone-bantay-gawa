@@ -57,7 +57,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
         workareaId: attendance.workareaId,
         name: attendance.areaName,
         polygon: const [],
-        supervisorName: 'Juan Santos',
+        supervisorName: 'Unassigned',
       ),
     );
 
@@ -617,36 +617,34 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
 
                           // 2. Historical Movement Polylines (UC-08 Alt Flow 2: 1-min privacy-enforced path)
                           if (_showHistoricalMovement) ...[
-                            PolylineLayer(
-                              polylines: [
-                                // Elena Reyes Path
-                                Polyline(
-                                  points: locationBreadcrumbs
-                                      .where((b) => b.userId == 'user-w-2' && b.isInsideGeofence)
-                                      .map((b) => b.point)
-                                      .toList(),
-                                  color: AppColors.accentBlue,
-                                  strokeWidth: 3.5,
-                                ),
-                                // Mark Villanueva Path
-                                Polyline(
-                                  points: locationBreadcrumbs
-                                      .where((b) => b.userId == 'user-w-3' && b.isInsideGeofence)
-                                      .map((b) => b.point)
-                                      .toList(),
-                                  color: AppColors.accentEmerald,
-                                  strokeWidth: 3.5,
-                                ),
-                                // Sofia Bautista Path
-                                Polyline(
-                                  points: locationBreadcrumbs
-                                      .where((b) => b.userId == 'user-w-5' && b.isInsideGeofence)
-                                      .map((b) => b.point)
-                                      .toList(),
-                                  color: Colors.purple,
-                                  strokeWidth: 3.5,
-                                ),
-                              ],
+                            Builder(
+                              builder: (context) {
+                                final Map<String, List<LatLng>> userPaths = {};
+                                for (final b in locationBreadcrumbs) {
+                                  if (b.isInsideGeofence) {
+                                    userPaths.putIfAbsent(b.userId, () => []).add(b.point);
+                                  }
+                                }
+                                final colors = [
+                                  AppColors.accentBlue,
+                                  AppColors.accentEmerald,
+                                  Colors.purple,
+                                  Colors.orange,
+                                  Colors.teal,
+                                ];
+                                int cIdx = 0;
+                                final polylines = userPaths.entries.map((entry) {
+                                  final col = colors[cIdx % colors.length];
+                                  cIdx++;
+                                  return Polyline(
+                                    points: entry.value,
+                                    color: col,
+                                    strokeWidth: 3.5,
+                                  );
+                                }).toList();
+
+                                return PolylineLayer(polylines: polylines);
+                              },
                             ),
                           ],
 
@@ -924,10 +922,25 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        _buildActivityItem('Elena Reyes', 'verified Time-In at Ormoc City Hall (On-site)', '12m ago', icon: Icons.login_rounded),
-                        _buildActivityItem('Carlos Mendoza', 'submitted Accomplishment Proof #01', '35m ago', icon: Icons.photo_camera_outlined),
-                        _buildActivityItem('Juan Santos (Supervisor)', 'approved Waste Disposal Log', '1h ago', icon: Icons.check_circle_outline),
-                        _buildActivityItem('Sofia Bautista', 'logged Time-In at Ormoc Bus Terminal', '2h ago', icon: Icons.login_rounded),
+                        if (attendance.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 12),
+                            child: Center(
+                              child: Text(
+                                'No recent field activity recorded.',
+                                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                              ),
+                            ),
+                          )
+                        else
+                          ...attendance.take(4).map((log) => _buildActivityItem(
+                            log.workerName,
+                            'logged ${log.actionType} at ${log.areaName.isNotEmpty ? log.areaName : "designated area"}',
+                            '${log.timeIn} today',
+                            icon: log.actionType.toLowerCase().contains('in')
+                                ? Icons.login_rounded
+                                : Icons.logout_rounded,
+                          )),
                       ],
                     ),
                   ),

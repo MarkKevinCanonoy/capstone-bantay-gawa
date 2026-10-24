@@ -100,19 +100,12 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                       ),
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
-                          value: _filterArea,
+                          value: workAreas.any((a) => a.workareaId == _filterArea) || _filterArea == 'all' ? _filterArea : 'all',
                           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppColors.textSecondary),
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                           items: [
                             const DropdownMenuItem(value: 'all', child: Text('All Ormoc Sectors')),
-                            if (workAreas.isNotEmpty)
-                              ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name)))
-                            else ...const [
-                              DropdownMenuItem(value: 'area-1', child: Text('Ormoc City Hall Zone')),
-                              DropdownMenuItem(value: 'area-2', child: Text('Ormoc Public Market')),
-                              DropdownMenuItem(value: 'area-3', child: Text('Ormoc Bus Terminal')),
-                              DropdownMenuItem(value: 'area-4', child: Text('Centennial Park Zone')),
-                            ],
+                            ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name))),
                           ],
                           onChanged: (val) {
                             if (val != null) setState(() => _filterArea = val);

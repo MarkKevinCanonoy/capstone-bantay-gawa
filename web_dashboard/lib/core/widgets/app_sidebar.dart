@@ -109,11 +109,26 @@ class AppSidebar extends ConsumerWidget {
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: AppColors.primaryNavy,
-                    borderRadius: BorderRadius.circular(10),
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
                   ),
-                  child: const Center(
-                    child: Icon(Icons.shield, color: Colors.white, size: 22),
+                  clipBehavior: Clip.antiAlias,
+                  child: Image.asset(
+                    'images/official_seal.png',
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: AppColors.primaryNavy,
+                      child: const Center(
+                        child: Icon(Icons.shield, color: Colors.white, size: 22),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),

@@ -76,7 +76,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
     );
   }
 
-  void _showAddAreaDialog() {
+  void _showAddAreaDialog() async {
     if (_newPolygonPoints.length < 3) {
       ToastNotification.show(
         context,
@@ -89,10 +89,15 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
 
     final nameController = TextEditingController();
     final descController = TextEditingController();
-    final allEmployees = ref.read(employeesProvider).value ?? [];
-    final supervisors = allEmployees.where((u) => u.role == UserRole.supervisor).toList();
-    String supervisorId = supervisors.isNotEmpty ? supervisors.first.userId : 'user-sup-1';
-    String supervisorName = supervisors.isNotEmpty ? supervisors.first.fullName : 'Juan Santos';
+    final supervisors = await ref.read(dataRepositoryProvider).getUsers(role: UserRole.supervisor);
+    if (!mounted) return;
+
+    String? supervisorId;
+    String supervisorName = 'Unassigned';
+    if (supervisors.isNotEmpty) {
+      supervisorId = supervisors.first.userId;
+      supervisorName = supervisors.first.fullName;
+    }
     final areaSqKm = _calculateAreaSqKm(_newPolygonPoints);
 
     showDialog(
@@ -205,50 +210,48 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                           border: Border.all(color: AppColors.border),
                         ),
                         child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: supervisors.any((s) => s.userId == supervisorId)
-                                ? supervisorId
-                                : (supervisors.isNotEmpty ? supervisors.first.userId : supervisorId),
+                          child: DropdownButton<String?>(
+                            value: supervisorId,
                             isExpanded: true,
                             icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                             items: [
-                              if (supervisors.isEmpty)
-                                DropdownMenuItem(
-                                  value: supervisorId,
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
-                                      const SizedBox(width: 10),
-                                      Text(supervisorName),
-                                    ],
-                                  ),
-                                )
-                              else
-                                ...supervisors.map((s) => DropdownMenuItem(
-                                      value: s.userId,
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
-                                          const SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text(
-                                              '${s.fullName} (${s.assignedAreaName ?? 'General'})',
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
+                              const DropdownMenuItem<String?>(
+                                value: null,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
+                                    SizedBox(width: 10),
+                                    Text('Unassigned (No Supervisor)'),
+                                  ],
+                                ),
+                              ),
+                              ...supervisors.map((s) => DropdownMenuItem<String?>(
+                                    value: s.userId,
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
+                                        const SizedBox(width: 10),
+                                        Flexible(
+                                          child: Text(
+                                            s.fullName,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                        ],
-                                      ),
-                                    )),
+                                        ),
+                                      ],
+                                    ),
+                                  )),
                             ],
                             onChanged: (val) {
-                              if (val != null) {
-                                setDialogState(() {
-                                  supervisorId = val;
+                              setDialogState(() {
+                                supervisorId = val;
+                                if (val == null) {
+                                  supervisorName = 'Unassigned';
+                                } else {
                                   final matched = supervisors.where((s) => s.userId == val);
-                                  supervisorName = matched.isNotEmpty ? matched.first.fullName : supervisorName;
-                                });
-                              }
+                                  supervisorName = matched.isNotEmpty ? matched.first.fullName : 'Unassigned';
+                                }
+                              });
                             },
                           ),
                         ),
@@ -292,7 +295,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                 return;
                               }
                               final newArea = WorkAreaModel(
-                                workareaId: 'area-${DateTime.now().millisecondsSinceEpoch}',
+                                workareaId: '',
                                 name: nameController.text.trim(),
                                 description: descController.text.trim(),
                                 supervisorId: supervisorId,
@@ -303,18 +306,23 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                 polygon: List.from(_newPolygonPoints),
                               );
                               await ref.read(dataRepositoryProvider).addWorkArea(newArea);
+                              ref.invalidate(workAreasProvider);
+                              final refreshed = await ref.read(dataRepositoryProvider).getWorkAreas();
+                              final created = refreshed.firstWhere(
+                                (a) => a.name == newArea.name,
+                                orElse: () => newArea,
+                              );
                               setState(() {
                                 _isDrawing = false;
                                 _newPolygonPoints.clear();
-                                _selectedArea = newArea;
+                                _selectedArea = created;
                               });
-                              _mapController.move(newArea.center, 15.0);
-                              ref.invalidate(workAreasProvider);
+                              _mapController.move(created.center, 15.0);
                               if (dialogCtx.mounted) {
                                 Navigator.of(dialogCtx).pop();
                               }
                               if (mounted) {
-                                ToastNotification.show(context, message: 'Work Area "${newArea.name}" created with custom drawn geofence!', type: ToastType.success);
+                                ToastNotification.show(context, message: 'Work Area "${created.name}" created with custom drawn geofence!', type: ToastType.success);
                               }
                             },
                           ),
@@ -331,12 +339,16 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
     );
   }
 
-  void _showEditAreaDialog(WorkAreaModel area) {
+  void _showEditAreaDialog(WorkAreaModel area) async {
     final nameController = TextEditingController(text: area.name);
     final descController = TextEditingController(text: area.description ?? '');
-    final allEmployees = ref.read(employeesProvider).value ?? [];
-    final supervisors = allEmployees.where((u) => u.role == UserRole.supervisor).toList();
-    String supervisorId = area.supervisorId ?? (supervisors.isNotEmpty ? supervisors.first.userId : 'user-sup-1');
+    final supervisors = await ref.read(dataRepositoryProvider).getUsers(role: UserRole.supervisor);
+    if (!mounted) return;
+
+    String? supervisorId = area.supervisorId;
+    if (supervisorId != null && !supervisors.any((s) => s.userId == supervisorId)) {
+      supervisorId = null;
+    }
     String supervisorName = area.supervisorName;
     String status = area.status;
 
@@ -418,50 +430,48 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                           border: Border.all(color: AppColors.border),
                         ),
                         child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: supervisors.any((s) => s.userId == supervisorId)
-                                ? supervisorId
-                                : (supervisors.isNotEmpty ? supervisors.first.userId : supervisorId),
+                          child: DropdownButton<String?>(
+                            value: supervisorId,
                             isExpanded: true,
                             icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                             items: [
-                              if (supervisors.isEmpty)
-                                DropdownMenuItem(
-                                  value: supervisorId,
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
-                                      const SizedBox(width: 10),
-                                      Text(supervisorName),
-                                    ],
-                                  ),
-                                )
-                              else
-                                ...supervisors.map((s) => DropdownMenuItem(
-                                      value: s.userId,
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
-                                          const SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text(
-                                              '${s.fullName} (${s.assignedAreaName ?? 'General'})',
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
+                              const DropdownMenuItem<String?>(
+                                value: null,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
+                                    SizedBox(width: 10),
+                                    Text('Unassigned (No Supervisor)'),
+                                  ],
+                                ),
+                              ),
+                              ...supervisors.map((s) => DropdownMenuItem<String?>(
+                                    value: s.userId,
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
+                                        const SizedBox(width: 10),
+                                        Flexible(
+                                          child: Text(
+                                            s.fullName,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                        ],
-                                      ),
-                                    )),
+                                        ),
+                                      ],
+                                    ),
+                                  )),
                             ],
                             onChanged: (val) {
-                              if (val != null) {
-                                setDialogState(() {
-                                  supervisorId = val;
+                              setDialogState(() {
+                                supervisorId = val;
+                                if (val == null) {
+                                  supervisorName = 'Unassigned';
+                                } else {
                                   final matched = supervisors.where((s) => s.userId == val);
-                                  supervisorName = matched.isNotEmpty ? matched.first.fullName : supervisorName;
-                                });
-                              }
+                                  supervisorName = matched.isNotEmpty ? matched.first.fullName : 'Unassigned';
+                                }
+                              });
                             },
                           ),
                         ),
@@ -577,18 +587,23 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                 polygon: (_newPolygonPoints.length >= 3) ? List.from(_newPolygonPoints) : area.polygon,
                               );
                               await ref.read(dataRepositoryProvider).updateWorkArea(updatedArea);
+                              ref.invalidate(workAreasProvider);
+                              final refreshed = await ref.read(dataRepositoryProvider).getWorkAreas();
+                              final created = refreshed.firstWhere(
+                                (a) => a.workareaId == area.workareaId,
+                                orElse: () => updatedArea,
+                              );
                               if (_selectedArea?.workareaId == area.workareaId) {
                                 setState(() {
-                                  _selectedArea = updatedArea;
+                                  _selectedArea = created;
                                   _newPolygonPoints.clear();
                                 });
                               }
-                              ref.invalidate(workAreasProvider);
                               if (dialogCtx.mounted) {
                                 Navigator.of(dialogCtx).pop();
                               }
                               if (mounted) {
-                                ToastNotification.show(context, message: 'Work Area "${updatedArea.name}" updated successfully!', type: ToastType.success);
+                                ToastNotification.show(context, message: 'Work Area "${created.name}" updated successfully!', type: ToastType.success);
                               }
                             },
                           ),
