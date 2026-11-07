@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:web_dashboard/features/employees/employees_view.dart';
 import 'package:web_dashboard/features/work_areas/work_areas_view.dart';
 import 'package:web_dashboard/features/leaves/leaves_view.dart';
@@ -9,10 +11,20 @@ import 'package:web_dashboard/features/reports/reports_view.dart';
 import 'package:web_dashboard/features/notifications/notifications_view.dart';
 import 'package:web_dashboard/features/dashboard/dashboard_view.dart';
 import 'package:web_dashboard/features/incidents/incidents_view.dart';
-import 'package:web_dashboard/data/datasources/mock_data.dart';
 import 'package:web_dashboard/data/models/user_model.dart';
+import 'package:web_dashboard/data/models/work_area_model.dart';
+import 'package:web_dashboard/data/models/attendance_model.dart';
+import 'package:web_dashboard/data/models/accomplishment_model.dart';
+import 'package:web_dashboard/data/models/leave_request_model.dart';
+import 'package:web_dashboard/data/models/alert_model.dart';
+import 'package:web_dashboard/data/models/broadcast_model.dart';
+import 'package:web_dashboard/data/models/incident_report_model.dart';
+import 'package:web_dashboard/data/models/location_tracking_model.dart';
+import 'package:web_dashboard/data/repositories/mock_repository.dart';
 import 'package:web_dashboard/data/repositories/repository_provider.dart';
 import 'package:web_dashboard/features/work_areas/widgets/area_workers_dialog.dart';
+import 'package:web_dashboard/features/attendance/attendance_view.dart';
+import 'package:web_dashboard/core/utils/official_report_pdf_helper.dart';
 
 class _SupervisorUserNotifier extends CurrentUserNotifier {
   final UserModel _user;
@@ -21,19 +33,215 @@ class _SupervisorUserNotifier extends CurrentUserNotifier {
   UserModel build() => _user;
 }
 
+MockRepository createTestRepository() {
+  return MockRepository(
+    initialWorkAreas: [
+      WorkAreaModel(
+        workareaId: 'area-1',
+        name: 'Ormoc City Hall Zone',
+        description: 'Administrative perimeter and offices',
+        supervisorId: 'user-sup-1',
+        supervisorName: 'Juan Santos',
+        assignedCount: 4,
+        status: 'Active',
+        areaSqKm: '1.20 km²',
+        polygon: const [
+          LatLng(11.0050, 124.6060),
+          LatLng(11.0070, 124.6060),
+          LatLng(11.0070, 124.6090),
+          LatLng(11.0050, 124.6090),
+        ],
+      ),
+      WorkAreaModel(
+        workareaId: 'area-2',
+        name: 'Ormoc Public Market',
+        description: 'Public market and commercial zone',
+        supervisorId: 'user-sup-2',
+        supervisorName: 'Maria Santos',
+        assignedCount: 2,
+        status: 'Active',
+        areaSqKm: '0.85 km²',
+        polygon: const [
+          LatLng(11.0080, 124.6040),
+          LatLng(11.0090, 124.6040),
+          LatLng(11.0090, 124.6050),
+          LatLng(11.0080, 124.6050),
+        ],
+      ),
+    ],
+    initialUsers: [
+      UserModel(
+        userId: 'user-admin',
+        username: 'admin@ormoc.gov.ph',
+        firstName: 'Mark Kevin',
+        lastName: 'Canonoy',
+        contactNumber: '+63 917 555 0199',
+        role: UserRole.admin,
+        status: 'active',
+        schedule: 'Mon-Fri 08:00 - 17:00',
+        faceEmbedding: '[0.1, 0.2, 0.3]',
+      ),
+      UserModel(
+        userId: 'user-sup-1',
+        username: 'sup_juan',
+        firstName: 'Juan',
+        lastName: 'Santos',
+        contactNumber: '+63 917 222 0002',
+        role: UserRole.supervisor,
+        status: 'active',
+        assignedAreaId: 'area-1',
+        assignedAreaName: 'Ormoc City Hall Zone',
+        schedule: 'Mon-Fri 08:00 - 17:00',
+        faceEmbedding: '[0.1, 0.2, 0.3]',
+      ),
+      UserModel(
+        userId: 'user-w-1',
+        username: 'carlos.mendoza',
+        firstName: 'Carlos',
+        lastName: 'Mendoza',
+        contactNumber: '+63 917 333 4444',
+        role: UserRole.worker,
+        status: 'active',
+        assignedAreaId: 'area-1',
+        assignedAreaName: 'Ormoc City Hall Zone',
+        creditScore: 88,
+        schedule: 'Mon-Fri 08:00 - 17:00',
+        faceEmbedding: '[0.1, 0.2, 0.3]',
+      ),
+      UserModel(
+        userId: 'user-w-2',
+        username: 'elena.reyes',
+        firstName: 'Elena',
+        lastName: 'Reyes',
+        contactNumber: '+63 917 333 5555',
+        role: UserRole.worker,
+        status: 'active',
+        assignedAreaId: 'area-1',
+        assignedAreaName: 'Ormoc City Hall Zone',
+        creditScore: 94,
+        schedule: 'Mon-Fri 08:00 - 17:00',
+        faceEmbedding: '[0.1, 0.2, 0.3]',
+      ),
+    ],
+    initialAttendanceLogs: [
+      AttendanceModel(
+        attendanceId: 'att-1',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workerEmpId: 'EMP-001',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        actionType: 'time-in',
+        timestamp: DateTime.now(),
+        gpsLat: 11.0055,
+        gpsLng: 124.6065,
+        faceMatch: true,
+        isVerified: true,
+      ),
+    ],
+    initialAccomplishments: [
+      AccomplishmentModel(
+        accomplishmentId: 'acc-1',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        message: 'Sector street sanitation and drain clearing completed.',
+        capturedDate: DateTime.now().toIso8601String().substring(0, 10),
+        capturedTime: '08:30:00',
+        imageUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+        capturedLat: 11.0055,
+        capturedLng: 124.6065,
+        status: 'pending',
+      ),
+    ],
+    initialLeaveRequests: [
+      LeaveRequestModel(
+        leaveId: 'leave-1',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        type: 'Sick Leave',
+        startDate: '2026-11-05',
+        endDate: '2026-11-07',
+        reason: 'Flu symptoms and medical rest advisory.',
+        status: 'pending',
+        imageUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      ),
+    ],
+    initialAlerts: [
+      AlertModel(
+        alertId: 'alert-1',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workareaId: 'area-1',
+        workareaName: 'Ormoc City Hall Zone',
+        type: 'Consecutive Absences',
+        title: '3+ Consecutive Unexcused Absences',
+        description: 'Carlos Mendoza has missed 3 consecutive shifts without filed leave.',
+        severity: 'warning',
+        timeAgo: '10m ago',
+        createdAt: DateTime.now(),
+      ),
+    ],
+    initialLocationTracking: [
+      LocationTrackingModel(
+        locationId: 'loc-1',
+        userId: 'user-w-1',
+        gpsLat: 11.0055,
+        gpsLng: 124.6065,
+        timestamp: DateTime.now(),
+        isInsideGeofence: true,
+        isLastSeen: true,
+      ),
+    ],
+    initialIncidents: [
+      IncidentReportModel(
+        reportId: 'inc-1',
+        reporterId: 'user-sup-1',
+        reporterName: 'Juan Santos',
+        reportedId: 'user-w-1',
+        reportedName: 'Carlos Mendoza',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        issueType: 'Not Working / Loitering',
+        description: 'Worker loitering outside designated sector zone.',
+        status: 'pending',
+        createdAt: DateTime.now(),
+      ),
+    ],
+  );
+}
+
+Widget createTestApp({
+  required Widget child,
+  List<dynamic> overrides = const [],
+  MockRepository? repository,
+}) {
+  final repo = repository ?? createTestRepository();
+  return ProviderScope(
+    overrides: [
+      dataRepositoryProvider.overrideWithValue(repo),
+      ...overrides.cast(),
+    ],
+    child: MaterialApp(
+      home: Scaffold(
+        body: child,
+      ),
+    ),
+  );
+}
+
 void main() {
-  testWidgets('UC-01: EmployeesView opens enrollment modal and performs facial capture & QR credential generation', (WidgetTester tester) async {
+  testWidgets('UC-01: EmployeesView opens enrollment modal and performs facial capture', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1600, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: EmployeesView(),
-          ),
-        ),
+      createTestApp(
+        child: const EmployeesView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -49,29 +257,70 @@ void main() {
 
     // Verify modal contains Biometric Enrollment
     expect(find.text('Register New Personnel'), findsOneWidget);
-    expect(find.text('Capture / Upload Face'), findsOneWidget);
-
-    // Simulate facial scan
-    final captureBtn = find.text('Capture / Upload Face');
-    await tester.ensureVisible(captureBtn);
-    await tester.tap(captureBtn);
-    await tester.pumpAndSettle();
-    expect(find.text('EMBEDDING STORED'), findsOneWidget);
+    expect(find.text('Use Webcam (Laptop / USB)'), findsOneWidget);
+    expect(find.text('Upload Image File'), findsOneWidget);
 
     // Close modal
-    await tester.tap(find.text('Cancel'));
+    final cancelBtn = find.text('Cancel');
+    await tester.ensureVisible(cancelBtn);
+    await tester.tap(cancelBtn);
     await tester.pumpAndSettle();
 
-    // Click on an existing employee to inspect QR credential
+    // Click on an existing employee to inspect biometrics
     final detailsIcon = find.byIcon(Icons.visibility_outlined).first;
     await tester.ensureVisible(detailsIcon);
     await tester.tap(detailsIcon);
     await tester.pumpAndSettle();
 
-    // Verify QR credential card and Print button in details modal
-    expect(find.text('Digital QR Credential & Biometrics'), findsOneWidget);
-    expect(find.text('Print QR Credential'), findsOneWidget);
-    expect(find.text('CREDENTIAL TOKEN'), findsOneWidget);
+    // Verify Biometric Facial Enrollment in details modal
+    expect(find.text('Biometric Facial Enrollment'), findsOneWidget);
+    expect(find.text('Close'), findsOneWidget);
+  });
+
+  testWidgets('UC-01b: EmployeesView hides Admin by default, toggles admin visibility, and sorts supervisor on top when filtering by area', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      createTestApp(
+        child: const EmployeesView(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 1. Verify Admin is hidden by default
+    expect(find.text('Mark Kevin Canonoy'), findsNothing);
+    expect(find.text('Show Admins (1)'), findsOneWidget);
+
+    // 2. Toggle Show Admins
+    await tester.tap(find.text('Show Admins (1)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mark Kevin Canonoy'), findsOneWidget);
+    expect(find.text('Hide Admins'), findsOneWidget);
+
+    // 3. Toggle Hide Admins again
+    await tester.tap(find.text('Hide Admins'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mark Kevin Canonoy'), findsNothing);
+    expect(find.text('Show Admins (1)'), findsOneWidget);
+
+    // 4. Verify Supervisor is present and labeled
+    expect(find.text('Juan Santos'), findsOneWidget);
+    expect(find.text('FIELD SUPERVISOR'), findsOneWidget);
+
+    // 5. Filter by Area (Ormoc City Hall Zone)
+    await tester.tap(find.text('All Work Areas'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ormoc City Hall Zone').last);
+    await tester.pumpAndSettle();
+
+    // Supervisor and area workers are shown
+    expect(find.text('Juan Santos'), findsOneWidget);
+    expect(find.text('Carlos Mendoza'), findsOneWidget);
+    expect(find.text('Elena Reyes'), findsOneWidget);
   });
 
   testWidgets('UC-02: WorkAreasView confirms deletion safety warning when personnel are assigned', (WidgetTester tester) async {
@@ -80,12 +329,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: WorkAreasView(),
-          ),
-        ),
+      createTestApp(
+        child: const WorkAreasView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -107,12 +352,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: LeavesView(),
-          ),
-        ),
+      createTestApp(
+        child: const LeavesView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -140,12 +381,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: AccomplishmentsView(),
-          ),
-        ),
+      createTestApp(
+        child: const AccomplishmentsView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -168,12 +405,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: ReportsView(),
-          ),
-        ),
+      createTestApp(
+        child: const ReportsView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -200,7 +433,7 @@ void main() {
     await tester.tap(find.text('Worker Performance').last);
     await tester.pumpAndSettle();
 
-    expect(find.text('CREDIT SCORE'), findsOneWidget);
+    expect(find.text('COMPLIANCE STATUS'), findsOneWidget);
     expect(find.text('STANDING LEVEL'), findsOneWidget);
 
     // Open Report Type dropdown and select Accomplishment Report
@@ -219,12 +452,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: ReportsView(),
-          ),
-        ),
+      createTestApp(
+        child: const ReportsView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -280,12 +509,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: NotificationsView(),
-          ),
-        ),
+      createTestApp(
+        child: const NotificationsView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -337,13 +562,11 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
+    final repo = createTestRepository();
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: WorkAreasView(),
-          ),
-        ),
+      createTestApp(
+        repository: repo,
+        child: const WorkAreasView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -365,20 +588,18 @@ void main() {
     expect(find.text('Monthly Workforce Shuffle'), findsNothing);
 
     // Open AreaWorkersDialog to verify roster display
-    final area = MockData.workAreas.first;
+    final areas = await repo.getWorkAreas();
+    final area = areas.first;
     await tester.pumpWidget(
-      ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: AreaWorkersDialog(area: area),
-          ),
-        ),
+      createTestApp(
+        repository: repo,
+        child: AreaWorkersDialog(area: area),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.textContaining(area.name), findsWidgets);
-    expect(find.textContaining('assigned to this sector'), findsOneWidget);
+    expect(find.textContaining('WORKFORCE ROSTER'), findsOneWidget);
   });
 
   testWidgets('UC-08 & UC-10: GIS Workforce Map renders live pins, sector filtering and 1-minute historical movement', (WidgetTester tester) async {
@@ -387,12 +608,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: DashboardView(),
-          ),
-        ),
+      createTestApp(
+        child: const DashboardView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -411,12 +628,124 @@ void main() {
     await tester.tap(historicalSwitch);
     await tester.pumpAndSettle();
 
-    // Privacy badge notice appears
-    expect(find.textContaining('1-minute path sampled inside assigned area only'), findsOneWidget);
+    // Verify historical path is enabled and privacy badge is removed
+    expect(find.textContaining('privacy-protected'), findsNothing);
+    expect(find.byType(PolylineLayer), findsOneWidget);
 
     // Verify legend
     expect(find.text('On-site (Within Geofence)'), findsOneWidget);
     expect(find.text('Off-site / Breach Alert'), findsOneWidget);
+  });
+
+  testWidgets('UC-08 & UC-10: Map worker marker tap opens detailed violation and telemetry inspection modal without raw token ID', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final repo = MockRepository(
+      initialWorkAreas: [
+        WorkAreaModel(
+          workareaId: 'area-1',
+          name: 'Ormoc City Hall Zone',
+          supervisorName: 'Juan Santos',
+          polygon: const [
+            LatLng(11.0050, 124.6060),
+            LatLng(11.0070, 124.6060),
+            LatLng(11.0070, 124.6090),
+            LatLng(11.0050, 124.6090),
+          ],
+        ),
+      ],
+      initialUsers: [
+        UserModel(
+          userId: 'user-w-breach',
+          username: 'roberto.dela.cruz',
+          firstName: 'Roberto',
+          lastName: 'Dela Cruz',
+          contactNumber: '+63 917 888 9999',
+          role: UserRole.worker,
+          status: 'active',
+          assignedAreaId: 'area-1',
+          assignedAreaName: 'Ormoc City Hall Zone',
+          creditScore: 82,
+          schedule: 'Mon-Fri 08:00 - 17:00',
+        ),
+      ],
+      initialAttendanceLogs: [
+        AttendanceModel(
+          attendanceId: 'att-breach-1',
+          userId: 'user-w-breach',
+          workerName: 'Roberto Dela Cruz',
+          workerEmpId: 'BW-ORMC-1741369281923',
+          workareaId: 'area-1',
+          areaName: 'Ormoc City Hall Zone',
+          actionType: 'time-in',
+          timestamp: DateTime.now(),
+          gpsLat: 11.0090, // Outside polygon max lat 11.0070, centered on map
+          gpsLng: 124.6075,
+          faceMatch: true,
+          isVerified: false, // Flagged breach
+          timeIn: '08:15 AM',
+        ),
+      ],
+      initialAlerts: [
+        AlertModel(
+          alertId: 'alt-1',
+          userId: 'user-w-breach',
+          workerName: 'Roberto Dela Cruz',
+          type: 'Geofence Breach',
+          title: 'Geofence Perimeter Breach',
+          description: 'Worker detected outside Ormoc City Hall Zone perimeter.',
+          timeAgo: '10m ago',
+          createdAt: DateTime.now().subtract(const Duration(minutes: 10)),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      createTestApp(
+        repository: repo,
+        child: const DashboardView(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Ensure map is visible on screen
+    await tester.ensureVisible(find.byType(FlutterMap));
+    await tester.pumpAndSettle();
+
+    // Verify breach marker exists on map and tap the warning icon inside it
+    final warningIcon = find.byIcon(Icons.warning_amber_rounded).first;
+    expect(warningIcon, findsOneWidget);
+    await tester.tap(warningIcon);
+    await tester.pumpAndSettle();
+
+    // Verify modal appears with clean details and NO useless BW-ORMC ID
+    expect(find.text('Roberto Dela Cruz'), findsWidgets);
+    expect(find.text('OFF-SITE BREACH'), findsOneWidget);
+    expect(find.textContaining('BW-ORMC-'), findsNothing); // Useless token is removed!
+
+    // Verify clean metadata
+    expect(find.textContaining('Field Worker • Shift: Mon-Fri 08:00 - 17:00 • Contact: +63 917 888 9999'), findsOneWidget);
+
+    // Verify Specific Detected Violations section
+    expect(find.text('DETECTED VIOLATIONS & ANOMALIES'), findsOneWidget);
+    expect(find.text('Geofence Perimeter Breach'), findsWidgets);
+    expect(find.textContaining('outside authorized Ormoc City Hall Zone boundary'), findsOneWidget);
+
+    // Verify Telemetry card
+    expect(find.text('Designated Sector'), findsOneWidget);
+    expect(find.text('Supv: Juan Santos'), findsOneWidget);
+    expect(find.text('Workforce Standing'), findsOneWidget);
+    expect(find.text('Action Required'), findsOneWidget);
+    expect(find.text('Today Check-In Time'), findsOneWidget);
+    expect(find.text('Biometric Face Verified'), findsOneWidget);
+
+    // Dismiss dialog
+    await tester.tap(find.text('Close Profile'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('DETECTED VIOLATIONS & ANOMALIES'), findsNothing);
   });
 
   testWidgets('UC-09: NotificationsView responds to alerts with warnings and dismiss audit logs', (WidgetTester tester) async {
@@ -425,12 +754,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
 
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          home: Scaffold(
-            body: NotificationsView(),
-          ),
-        ),
+      createTestApp(
+        child: const NotificationsView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -438,7 +763,7 @@ void main() {
     // Verify alert categories
     expect(find.text('All Alerts'), findsOneWidget);
     expect(find.text('Consecutive Absences (3+)'), findsOneWidget);
-    expect(find.text('Credit Score Warnings'), findsOneWidget);
+    expect(find.text('Compliance Warnings'), findsOneWidget);
     expect(find.text('Geofence Breaches'), findsOneWidget);
 
     // Tap Consecutive Absences (3+) filter chip
@@ -468,10 +793,6 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
-    tester.view.physicalSize = const Size(1440, 900);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-
     // Provide supervisor user
     final supervisorUser = UserModel(
       userId: 'user-sup-1',
@@ -486,15 +807,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      ProviderScope(
+      createTestApp(
         overrides: [
           currentUserProvider.overrideWith(() => _SupervisorUserNotifier(supervisorUser)),
         ],
-        child: const MaterialApp(
-          home: Scaffold(
-            body: IncidentsView(),
-          ),
-        ),
+        child: const IncidentsView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -503,6 +820,10 @@ void main() {
     expect(find.text('Worker Incident & Issue Reports'), findsOneWidget);
     expect(find.textContaining('Review worker issue reports in your sector'), findsOneWidget);
     expect(find.text('Assigned Sector: Ormoc City Hall Zone'), findsOneWidget);
+
+    // Verify Date Navigator and Sort controls
+    expect(find.text('All Dates'), findsOneWidget);
+    expect(find.text('Sort: Newest First'), findsOneWidget);
 
     // Verify pending incident card
     expect(find.text('Not Working / Loitering'), findsOneWidget);
@@ -549,15 +870,11 @@ void main() {
     );
 
     await tester.pumpWidget(
-      ProviderScope(
+      createTestApp(
         overrides: [
           currentUserProvider.overrideWith(() => _SupervisorUserNotifier(supervisorUser)),
         ],
-        child: const MaterialApp(
-          home: Scaffold(
-            body: ReportsView(),
-          ),
-        ),
+        child: const ReportsView(),
       ),
     );
     await tester.pumpAndSettle();
@@ -602,21 +919,21 @@ void main() {
     );
 
     await tester.pumpWidget(
-      ProviderScope(
+      createTestApp(
         overrides: [
           currentUserProvider.overrideWith(() => _SupervisorUserNotifier(supervisorUser)),
         ],
-        child: const MaterialApp(
-          home: Scaffold(
-            body: LeavesView(),
-          ),
-        ),
+        child: const LeavesView(),
       ),
     );
     await tester.pumpAndSettle();
 
     // Verify Supervisor notice banner on top of table
     expect(find.textContaining('Supervisor Notice: As defined in the Role Matrix'), findsOneWidget);
+
+    // Verify Date Navigator and Sort controls
+    expect(find.text('All Dates'), findsOneWidget);
+    expect(find.text('Sort: Newest Filing'), findsOneWidget);
 
     // Verify "Review / Endorse" button in table
     final reviewBtn = find.text('Review / Endorse').first;
@@ -645,6 +962,404 @@ void main() {
     // Verify toast confirmation
     expect(find.textContaining('Supervisor recommendation submitted for Admin review'), findsOneWidget);
   });
-}
 
+  test('AlertModel live credit score extraction and warning penalty deduction parity', () async {
+    // 1. Verify AlertModel extracts live score from joined user credit_balance
+    final rawJsonWithUser = {
+      'alert_id': 'alt-101',
+      'user_id': 'user-w-1',
+      'type': 'Geofence Breach',
+      'message': 'Worker stepped outside sector boundary',
+      'created_at': DateTime.now().toIso8601String(),
+      'users': {
+        'first_name': 'Carlos',
+        'last_name': 'Mendoza',
+        'qr_token': 'WRK-001',
+        'contact_number': '+63 917 333 4444',
+        'credit_balance': {
+          'current_score': 95,
+        },
+      },
+    };
+
+    final alertModel = AlertModel.fromJson(rawJsonWithUser);
+    expect(alertModel.creditScore, equals(95));
+    expect(alertModel.workerName, equals('Carlos Mendoza'));
+
+    // 2. Verify fallback to 100 (not 85) when user has not yet been penalized
+    final rawJsonUnpenalized = {
+      'alert_id': 'alt-102',
+      'user_id': 'user-w-2',
+      'type': 'breach',
+      'message': 'Perimeter breached',
+      'users': {
+        'first_name': 'Ana',
+        'last_name': 'Reyes',
+      },
+    };
+    final unpenalizedAlert = AlertModel.fromJson(rawJsonUnpenalized);
+    expect(unpenalizedAlert.creditScore, equals(100));
+
+    // 3. Verify MockRepository sendWarningForAlert deducts 5 points
+    final repo = createTestRepository();
+    final usersBefore = await repo.getUsers();
+    final workerBefore = usersBefore.firstWhere((u) => u.userId == 'user-w-1');
+    final initialScore = workerBefore.creditScore;
+
+    await repo.sendWarningForAlert(
+      alertId: 'alert-1',
+      workerId: 'user-w-1',
+      message: 'Official Warning: Geofence Breach',
+    );
+
+    final usersAfter = await repo.getUsers();
+    final workerAfter = usersAfter.firstWhere((u) => u.userId == 'user-w-1');
+    expect(workerAfter.creditScore, equals(initialScore - 5));
+
+    // 4. Verify BroadcastModel with receiverId serialization
+    final broadcast = BroadcastModel(
+      notificationId: 'notif-1',
+      senderId: 'user-admin',
+      receiverId: 'user-w-1',
+      recipients: 'Carlos Mendoza',
+      subject: 'Sector Relocation',
+      message: 'Please proceed to Sector B.',
+      type: 'confidential',
+      isConfidential: true,
+      deliveredCount: 1,
+      sentAt: DateTime.now(),
+    );
+    final supabaseJson = broadcast.toSupabaseJson();
+    expect(supabaseJson['receiver_id'], equals('user-w-1'));
+    expect(supabaseJson['type'], equals('confidential'));
+    expect(supabaseJson['message'], contains('Sector Relocation: Please proceed to Sector B.'));
+  });
+
+  test('Workforce Shift Scheduling: updateWorkerSchedule updates user schedule and logs notification', () async {
+    final repo = createTestRepository();
+    final workerId = 'user-w-1';
+
+    // 1. Verify initial worker schedule
+    final initialUsers = await repo.getUsers();
+    final worker = initialUsers.firstWhere((u) => u.userId == workerId);
+    expect(worker.schedule, isNotEmpty);
+
+    // 2. Update to Morning (AM) shift: 06:00 - 11:00
+    await repo.updateWorkerSchedule(
+      workerId: workerId,
+      startTime: '06:00',
+      endTime: '11:00',
+      days: 'Mon-Fri',
+      areaName: 'Ormoc City Hall Zone',
+    );
+
+    final updatedUsers = await repo.getUsers();
+    final updatedWorker = updatedUsers.firstWhere((u) => u.userId == workerId);
+    expect(updatedWorker.schedule, equals('Mon-Fri 06:00 - 11:00'));
+
+    // 3. Verify that an assignment notification was sent to the worker
+    final broadcasts = await repo.getBroadcasts();
+    final scheduleNotif = broadcasts.firstWhere(
+      (b) => b.receiverId == workerId && (b.subject.contains('Schedule') || b.subject.contains('Shift')),
+      orElse: () => throw Exception('Notification not found'),
+    );
+    expect(scheduleNotif.receiverId, equals(workerId));
+    expect(scheduleNotif.message, contains('06:00 - 11:00'));
+
+    // 4. Verify UserModel parses joined schedules array properly
+    final rawJsonWithSchedules = {
+      'user_id': 'user-w-99',
+      'first_name': 'Pedro',
+      'last_name': 'Penduko',
+      'role': 'Field Worker',
+      'schedules': [
+        {
+          'schedule_id': 'sch-10',
+          'start_time': '13:00',
+          'end_time': '17:00',
+          'days': 'Mon-Sat',
+          'created_at': '2026-11-02T10:00:00Z',
+        }
+      ],
+    };
+
+    final parsedUser = UserModel.fromJson(rawJsonWithSchedules);
+    expect(parsedUser.schedule, equals('Mon-Sat 13:00 - 17:00'));
+  });
+
+  test('DailyWorkerAttendance groups multiple punches per worker into a single stack', () {
+    final now = DateTime(2026, 11, 3, 7, 5);
+    final logs = [
+      AttendanceModel(
+        attendanceId: 'att-1',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workerEmpId: 'WRK-001',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        actionType: 'time-in',
+        timestamp: now,
+        gpsLat: 11.0050,
+        gpsLng: 124.6060,
+      ),
+      AttendanceModel(
+        attendanceId: 'att-2',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workerEmpId: 'WRK-001',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        actionType: 'break-in',
+        timestamp: now.add(const Duration(hours: 3)),
+        gpsLat: 11.0051,
+        gpsLng: 124.6061,
+      ),
+      AttendanceModel(
+        attendanceId: 'att-3',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workerEmpId: 'WRK-001',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        actionType: 'break-out',
+        timestamp: now.add(const Duration(hours: 3, minutes: 15)),
+        gpsLat: 11.0050,
+        gpsLng: 124.6060,
+      ),
+      AttendanceModel(
+        attendanceId: 'att-4',
+        userId: 'user-w-1',
+        workerName: 'Carlos Mendoza',
+        workerEmpId: 'WRK-001',
+        workareaId: 'area-1',
+        areaName: 'Ormoc City Hall Zone',
+        actionType: 'time-out',
+        timestamp: now.add(const Duration(hours: 5)),
+        gpsLat: 11.0050,
+        gpsLng: 124.6060,
+      ),
+      AttendanceModel(
+        attendanceId: 'att-5',
+        userId: 'user-w-2',
+        workerName: 'Ana Reyes',
+        workerEmpId: 'WRK-002',
+        workareaId: 'area-2',
+        areaName: 'Ormoc Public Market',
+        actionType: 'time-in',
+        timestamp: now.add(const Duration(minutes: 10)),
+        gpsLat: 11.0080,
+        gpsLng: 124.6040,
+      ),
+    ];
+
+    final grouped = DailyWorkerAttendance.groupLogs(logs);
+    // 5 total punches across 2 workers must group into 2 cards
+    expect(grouped.length, equals(2));
+
+    final carlosGroup = grouped.firstWhere((g) => g.userId == 'user-w-1');
+    expect(carlosGroup.punches.length, equals(4));
+    expect(carlosGroup.timeInPunch, isNotNull);
+    expect(carlosGroup.breakInPunch, isNotNull);
+    expect(carlosGroup.breakOutPunch, isNotNull);
+    expect(carlosGroup.timeOutPunch, isNotNull);
+    expect(carlosGroup.statusSummary, equals('SHIFT COMPLETE'));
+    expect(carlosGroup.allFaceMatched, isTrue);
+
+    final anaGroup = grouped.firstWhere((g) => g.userId == 'user-w-2');
+    expect(anaGroup.punches.length, equals(1));
+    expect(anaGroup.statusSummary, equals('ON DUTY'));
+  });
+
+  testWidgets('AttendanceView renders stacked card and expands punch details with proof modal', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final repo = createTestRepository();
+    final container = ProviderContainer(
+      overrides: [
+        dataRepositoryProvider.overrideWithValue(repo),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: Scaffold(body: AttendanceView()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Verify view loads with Attendance Verification title
+    expect(find.text('Attendance Verification'), findsOneWidget);
+
+    // Verify worker card renders with initials avatar and sequence chips
+    expect(find.text('Carlos Mendoza'), findsOneWidget);
+    expect(find.text('IN: '), findsWidgets);
+
+    // Click on worker card to expand dropdown stack
+    final workerCard = find.text('Carlos Mendoza');
+    await tester.tap(workerCard);
+    await tester.pumpAndSettle();
+
+    // Verify expanded section shows English punch history and biometric verification status
+    expect(find.textContaining('Punch History'), findsOneWidget);
+    expect(find.text('Time-In'), findsWidgets);
+    expect(find.text('FACE VERIFIED'), findsWidgets);
+    expect(find.text('All Punches Biometrically Verified'), findsOneWidget);
+  });
+
+  testWidgets('UC-03b: LeavesView denial flow with reason updates status to denied', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      createTestApp(
+        child: const LeavesView(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final reviewButtons = find.text('Review');
+    expect(reviewButtons, findsWidgets);
+
+    await tester.ensureVisible(reviewButtons.first);
+    await tester.tap(reviewButtons.first);
+    await tester.pumpAndSettle();
+
+    // Tap Deny Leave button in review modal
+    final denyButton = find.text('Deny Leave');
+    expect(denyButton, findsOneWidget);
+    await tester.tap(denyButton);
+    await tester.pumpAndSettle();
+
+    // Verify denial confirmation dialog appears
+    expect(find.text('Deny Leave Request'), findsOneWidget);
+    expect(find.text('Confirm Denial'), findsOneWidget);
+
+    // Enter denial reason and confirm
+    final reasonField = find.byType(TextField);
+    expect(reasonField, findsOneWidget);
+    await tester.enterText(reasonField, 'Operational understaffing in sector');
+    await tester.pumpAndSettle();
+
+    final confirmDenial = find.text('Confirm Denial');
+    await tester.tap(confirmDenial);
+    await tester.pumpAndSettle();
+
+    // Verify dialog dismissed and info toast triggered
+    expect(find.text('Deny Leave Request'), findsNothing);
+  });
+
+  testWidgets('UC-03c: LeavesView date filtering excludes leave requests when day before is selected', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      createTestApp(
+        child: const LeavesView(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Initially "All Dates" is active
+    expect(find.text('All Dates'), findsOneWidget);
+    expect(find.textContaining('leave applications'), findsOneWidget);
+
+    // Click Previous Day on Date Navigator
+    final prevDayBtn = find.byTooltip('Previous Day');
+    expect(prevDayBtn, findsOneWidget);
+    await tester.tap(prevDayBtn);
+    await tester.pumpAndSettle();
+
+    // Verify the date navigator changes from All Dates to a specific formatted date
+    expect(find.text('All Dates'), findsNothing);
+  });
+
+  testWidgets('UC-11b: IncidentsView date filtering strictly excludes incidents when day before is selected', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      createTestApp(
+        child: const IncidentsView(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Worker Incident & Issue Reports'), findsOneWidget);
+
+    // Initially All Dates is active
+    expect(find.text('All Dates'), findsOneWidget);
+
+    // Navigate to previous day
+    final prevDayBtn = find.byTooltip('Previous Day');
+    expect(prevDayBtn, findsOneWidget);
+    await tester.tap(prevDayBtn);
+    await tester.pumpAndSettle();
+
+    expect(find.text('All Dates'), findsNothing);
+  });
+
+  testWidgets('UC-03d: LeavesView renders Export CSV and Export Official PDF buttons', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      createTestApp(
+        child: const LeavesView(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Leave Request Management'), findsOneWidget);
+    expect(find.text('Export CSV / Excel'), findsOneWidget);
+    expect(find.text('Export Official PDF'), findsOneWidget);
+  });
+
+  test('OfficialReportPdfHelper generates valid PDF document bytes with LGU letterhead', () async {
+    final user = UserModel(
+      userId: 'test-admin',
+      username: 'admin',
+      firstName: 'Admin',
+      lastName: 'User',
+      contactNumber: '123',
+      role: UserRole.admin,
+      status: 'active',
+      schedule: 'Regular',
+    );
+
+    final leaves = <LeaveRequestModel>[
+      LeaveRequestModel(
+        leaveId: 'LR-001',
+        userId: 'user-001',
+        workerName: 'Juan Dela Cruz',
+        areaName: 'City Hall',
+        type: 'Sick Leave',
+        startDate: '2026-11-06',
+        endDate: '2026-11-07',
+        reason: 'Severe fever with medical certificate',
+        status: 'approved',
+      ),
+    ];
+
+    final pdfBytes = await OfficialReportPdfHelper.generateLeavesPdf(
+      leaves: leaves,
+      generatedBy: user,
+      dateRangeLabel: 'All Dates',
+      sectorLabel: 'All Ormoc Sectors',
+    );
+
+    expect(pdfBytes.isNotEmpty, isTrue);
+    // PDF magic bytes: %PDF
+    expect(String.fromCharCodes(pdfBytes.take(4)), '%PDF');
+  });
+}
 

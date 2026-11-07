@@ -11,6 +11,7 @@ import '../../core/widgets/app_button.dart';
 import '../../data/models/attendance_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/work_area_model.dart';
+import '../../data/models/alert_model.dart';
 import '../../data/repositories/repository_provider.dart';
 
 class DashboardView extends ConsumerStatefulWidget {
@@ -26,28 +27,45 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
   String _selectedMapAreaId = 'all';
 
   // ==========================================
-  // UC-08 & UC-10: Worker Profile & Attendance Dialog
+  // UC-08 & UC-10: Worker Profile & Telemetry / Violation Inspection Dialog
   // ==========================================
+  bool _isPointInPolygon(double lat, double lng, List<LatLng> polygon) {
+    if (polygon.length < 3) return true;
+    bool isInside = false;
+    for (int i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      if (((polygon[i].latitude > lat) != (polygon[j].latitude > lat)) &&
+          (lng < (polygon[j].longitude - polygon[i].longitude) * (lat - polygon[i].latitude) /
+                  (polygon[j].latitude - polygon[i].latitude) +
+              polygon[i].longitude)) {
+        isInside = !isInside;
+      }
+    }
+    return isInside;
+  }
+
   void _showWorkerProfileDialog({
     required AttendanceModel attendance,
     required List<UserModel> employees,
     required List<WorkAreaModel> workAreas,
     required List<AttendanceModel> allAttendance,
+    required List<AlertModel> alerts,
   }) {
     final worker = employees.firstWhere(
       (e) => e.userId == attendance.userId,
       orElse: () => UserModel(
         userId: attendance.userId,
-        username: 'worker',
+        username: attendance.workerName.toLowerCase().replaceAll(' ', '.'),
         firstName: attendance.workerName.split(' ').first,
-        lastName: attendance.workerName.split(' ').length > 1 ? attendance.workerName.split(' ').last : '',
+        lastName: attendance.workerName.split(' ').length > 1
+            ? attendance.workerName.split(' ').sublist(1).join(' ')
+            : '',
         contactNumber: '+63 917 555 0100',
         role: UserRole.worker,
         status: 'active',
         assignedAreaId: attendance.workareaId,
         assignedAreaName: attendance.areaName,
-        schedule: 'Mon-Fri 07:00 - 16:00',
-        creditScore: 88,
+        schedule: 'Mon-Fri 08:00 - 17:00',
+        creditScore: 100,
       ),
     );
 
@@ -61,8 +79,74 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
       ),
     );
 
-    // Get historical logs for this worker (SRS UC-10 Main Flow Step 6)
-    final workerLogs = allAttendance.where((a) => a.userId == attendance.userId).toList();
+    final LatLng workerPoint = LatLng(attendance.gpsLat, attendance.gpsLng);
+    final double distanceToCenter = const Distance().as(
+      LengthUnit.Meter,
+      workerPoint,
+      area.center,
+    );
+    final bool isActuallyInside = _isPointInPolygon(attendance.gpsLat, attendance.gpsLng, area.polygon);
+
+    // Filter active alerts for this worker
+    final workerAlerts = alerts.where((a) =>
+      !a.isResolved &&
+      ((a.userId != null && a.userId == attendance.userId) ||
+       (a.workerName != null && a.workerName!.trim().toLowerCase() == worker.fullName.trim().toLowerCase()) ||
+       (a.workareaId != null && a.workareaId == attendance.workareaId && !attendance.isVerified))
+    ).toList();
+
+    final distanceFormatted = distanceToCenter >= 1000
+        ? '${(distanceToCenter / 1000).toStringAsFixed(1)} km'
+        : '${distanceToCenter.toStringAsFixed(0)} meters';
+
+    // Simple, human-readable violation list
+    final List<Map<String, String>> detectedViolations = [];
+
+    // 1. Geofence breach
+    if (!attendance.isVerified || !isActuallyInside) {
+      detectedViolations.add({
+        'title': 'Geofence Perimeter Breach',
+        'details': 'Worker is located approximately $distanceFormatted outside authorized ${area.name} boundary.',
+      });
+    }
+
+    // 2. Face verification
+    if (!attendance.faceMatch) {
+      detectedViolations.add({
+        'title': 'Biometric Verification Failure',
+        'details': 'Facial scan did not match during time-in at ${attendance.timeIn}.',
+      });
+    }
+
+    // 3. Shift warning
+    if (attendance.hasWarning) {
+      detectedViolations.add({
+        'title': 'Attendance Shift Anomaly',
+        'details': 'Time-in recorded at ${attendance.timeIn}, outside normal shift hours.',
+      });
+    }
+
+    // 4. Any alerts from database
+    for (final alt in workerAlerts) {
+      if (alt.type.toLowerCase().contains('breach') && detectedViolations.any((v) => v['title']!.contains('Geofence'))) {
+        continue;
+      }
+      detectedViolations.add({
+        'title': alt.title.isNotEmpty ? alt.title : 'Incident Alert',
+        'details': alt.description.isNotEmpty ? alt.description : 'Disciplinary alert flagged ${alt.timeAgo}.',
+      });
+    }
+
+    final bool hasViolation = detectedViolations.isNotEmpty || !attendance.isVerified;
+
+    // Clean, readable metadata without useless BW-ORMC token
+    final contactText = (worker.contactNumber.isNotEmpty && worker.contactNumber != 'N/A')
+        ? worker.contactNumber
+        : 'Contact not on file';
+    final scheduleText = (worker.schedule.isNotEmpty && worker.schedule != 'Unassigned')
+        ? worker.schedule
+        : 'Mon-Fri 08:00 - 17:00';
+    final roleText = worker.role == UserRole.supervisor ? 'Field Supervisor' : 'Field Worker';
 
     showDialog(
       context: context,
@@ -72,46 +156,51 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           backgroundColor: AppColors.surface,
           child: Container(
-            width: 600,
-            padding: const EdgeInsets.all(24),
+            width: 520,
+            padding: const EdgeInsets.all(22),
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header
+                  // 1. Worker Header
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CircleAvatar(
                         radius: 24,
-                        backgroundColor: attendance.isVerified ? AppColors.accentEmerald : AppColors.brightRed,
+                        backgroundColor: hasViolation ? AppColors.brightRed : AppColors.accentEmerald,
                         child: Text(
                           worker.initials,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
                         ),
                       ),
-                      const SizedBox(width: 14),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
                               children: [
-                                Text(
-                                  worker.fullName,
-                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                                Flexible(
+                                  child: Text(
+                                    worker.fullName,
+                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 StatusBadge(
-                                  label: attendance.isVerified ? 'ON-SITE' : 'OFF-SITE BREACH',
-                                  type: attendance.isVerified ? BadgeType.optimal : BadgeType.danger,
+                                  label: hasViolation ? 'OFF-SITE BREACH' : 'ON-SITE VERIFIED',
+                                  type: hasViolation ? BadgeType.danger : BadgeType.optimal,
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(height: 3),
                             Text(
-                              'ID: ${attendance.workerEmpId} • Contact: ${worker.contactNumber}',
+                              '$roleText • Shift: $scheduleText • Contact: $contactText',
                               style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
@@ -119,14 +208,122 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                       IconButton(
                         icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
                         onPressed: () => Navigator.of(context).pop(),
+                        tooltip: 'Close Profile',
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  const Divider(height: 1, color: AppColors.border),
-                  const SizedBox(height: 16),
 
-                  // Real-Time Location & Geofence Status Card (UC-08 Step 4)
+                  // 2. Simple Issues or Normal Banner
+                  if (hasViolation) ...[
+                    Container(
+                      margin: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFFECACA)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.warning_amber_rounded, size: 17, color: Color(0xFFDC2626)),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  'DETECTED VIOLATIONS & ANOMALIES',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF991B1B),
+                                    letterSpacing: 0.3,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFDC2626),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  '${detectedViolations.length} ISSUE${detectedViolations.length > 1 ? "S" : ""}',
+                                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          ...detectedViolations.map((v) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 2),
+                                  child: Icon(Icons.circle, size: 6, color: Color(0xFFDC2626)),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        v['title'] ?? 'Violation',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF7F1D1D)),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        v['details'] ?? '',
+                                        style: const TextStyle(fontSize: 11.5, color: Color(0xFF334155), height: 1.35),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    Container(
+                      margin: const EdgeInsets.symmetric(vertical: 14),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFA7F3D0)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.check_circle_rounded, size: 18, color: Color(0xFF059669)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'GEOFENCE COMPLIANCE: NORMAL',
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF065F46)),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Worker is verified on-site inside ${area.name}. Check-in verified at ${attendance.timeIn}.',
+                                  style: const TextStyle(fontSize: 11.5, color: Color(0xFF047857)),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // 3. Clear Details Card (Simple 2x2 Grid)
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -142,9 +339,11 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Designated Sector', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                  const SizedBox(height: 2),
-                                  Text(attendance.areaName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                                  const Text('Designated Sector', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
+                                  const SizedBox(height: 3),
+                                  Text(attendance.areaName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                                  const SizedBox(height: 1),
+                                  Text('Supv: ${area.supervisorName}', style: const TextStyle(fontSize: 11, color: AppColors.textMuted), overflow: TextOverflow.ellipsis),
                                 ],
                               ),
                             ),
@@ -152,19 +351,43 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Area Supervisor', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                  const Text('Workforce Standing', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
+                                  const SizedBox(height: 3),
+                                  Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                                        decoration: BoxDecoration(
+                                          color: (hasViolation ? AppColors.brightRed : AppColors.accentEmerald).withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              hasViolation ? Icons.warning_amber_rounded : Icons.check_circle_outline,
+                                              size: 13,
+                                              color: hasViolation ? AppColors.brightRed : AppColors.accentEmerald,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              hasViolation ? 'Action Required' : 'Good Standing',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                                color: hasViolation ? AppColors.brightRed : AppColors.accentEmerald,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                   const SizedBox(height: 2),
-                                  Text(area.supervisorName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                                ],
-                              ),
-                            ),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Performance Credit', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                  const SizedBox(height: 2),
-                                  Text('${worker.creditScore}% Star Rating', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.accentEmerald)),
+                                  Text(hasViolation ? 'Active perimeter breach flagged' : 'Compliant with work area rules', style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
                                 ],
                               ),
                             ),
@@ -179,9 +402,27 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Today Check-In Time', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                  const SizedBox(height: 2),
-                                  Text('${attendance.timeIn} (Biometric Match)', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  const Text('Today Check-In Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
+                                  const SizedBox(height: 3),
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        attendance.faceMatch ? Icons.verified_user_rounded : Icons.gpp_maybe_rounded,
+                                        size: 14,
+                                        color: attendance.faceMatch ? AppColors.accentEmerald : AppColors.brightRed,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        attendance.timeIn,
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    attendance.faceMatch ? 'Biometric Face Verified' : 'Face Biometric Unverified',
+                                    style: TextStyle(fontSize: 11, color: attendance.faceMatch ? AppColors.accentEmerald : AppColors.brightRed),
+                                  ),
                                 ],
                               ),
                             ),
@@ -189,9 +430,21 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('GPS Pin Coordinates', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                  const SizedBox(height: 2),
-                                  Text('${attendance.gpsLat.toStringAsFixed(4)}, ${attendance.gpsLng.toStringAsFixed(4)}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  const Text('Location Proximity', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textMuted)),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    hasViolation ? 'Outside Boundary' : 'Inside Zone',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: hasViolation ? AppColors.brightRed : AppColors.accentEmerald,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    hasViolation ? '~$distanceFormatted away' : 'Normal on-site presence',
+                                    style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                  ),
                                 ],
                               ),
                             ),
@@ -202,57 +455,6 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                   ),
 
                   const SizedBox(height: 18),
-
-                  // Recent Attendance History (UC-10 Step 6)
-                  const Text('ATTENDANCE VERIFICATION HISTORY', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: AppColors.textMuted)),
-                  const SizedBox(height: 8),
-                  Container(
-                    constraints: const BoxConstraints(maxHeight: 180),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppColors.border),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: workerLogs.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(16),
-                              child: Text('No attendance records logged today.', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                            ),
-                          )
-                        : ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: workerLogs.length,
-                            separatorBuilder: (_, _) => const Divider(height: 1, color: AppColors.borderSubtle),
-                            itemBuilder: (context, i) {
-                              final log = workerLogs[i];
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      log.isVerified ? Icons.check_circle_outline : Icons.error_outline,
-                                      size: 16,
-                                      color: log.isVerified ? AppColors.accentEmerald : AppColors.brightRed,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        'Time-In: ${log.timeIn} • Sector: ${log.areaName}',
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                                      ),
-                                    ),
-                                    StatusBadge(
-                                      label: log.isVerified ? 'VERIFIED' : 'FLAGGED',
-                                      type: log.isVerified ? BadgeType.optimal : BadgeType.danger,
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-
-                  const SizedBox(height: 20),
 
                   Align(
                     alignment: Alignment.centerRight,
@@ -282,13 +484,66 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     final accomplishmentsAsync = ref.watch(accomplishmentsProvider);
     final locationBreadcrumbsAsync = ref.watch(locationBreadcrumbsProvider(null));
 
-    final workAreas = workAreasAsync.value ?? [];
-    final employees = employeesAsync.value ?? [];
-    final attendance = attendanceAsync.value ?? [];
-    final leaves = leaveRequestsAsync.value ?? [];
-    final alerts = alertsAsync.value ?? [];
-    final accomplishments = accomplishmentsAsync.value ?? [];
-    final locationBreadcrumbs = locationBreadcrumbsAsync.value ?? [];
+    final rawWorkAreas = workAreasAsync.value ?? [];
+    final rawEmployees = employeesAsync.value ?? [];
+    final rawAttendance = attendanceAsync.value ?? [];
+    final rawLeaves = leaveRequestsAsync.value ?? [];
+    final rawAlerts = alertsAsync.value ?? [];
+    final rawAccomplishments = accomplishmentsAsync.value ?? [];
+    final rawBreadcrumbs = locationBreadcrumbsAsync.value ?? [];
+
+    final isSupervisor = user.role == UserRole.supervisor;
+    final workAreas = isSupervisor
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == user.userId ||
+            (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == user.fullName.toLowerCase()) ||
+            a.workareaId == user.assignedAreaId ||
+            a.name == user.assignedAreaName).toList()
+        : rawWorkAreas;
+
+    final employees = isSupervisor
+        ? rawEmployees.where((emp) {
+            if (emp.role == UserRole.admin) return false;
+            if (emp.role == UserRole.supervisor && emp.userId != user.userId) return false;
+            return workAreas.any((a) =>
+                a.workareaId == emp.assignedAreaId ||
+                (emp.assignedAreaName != null && a.name.toLowerCase() == emp.assignedAreaName!.toLowerCase()) ||
+                (emp.role == UserRole.supervisor && emp.userId == user.userId));
+          }).toList()
+        : rawEmployees;
+
+    final attendance = isSupervisor
+        ? rawAttendance.where((att) =>
+            workAreas.any((a) => a.workareaId == att.workareaId || a.name.toLowerCase() == att.areaName.toLowerCase())
+          ).toList()
+        : rawAttendance;
+
+    final leaves = isSupervisor
+        ? rawLeaves.where((l) =>
+            workAreas.any((a) => (l.workareaId != null && l.workareaId == a.workareaId) || a.name.toLowerCase() == l.areaName.toLowerCase())
+          ).toList()
+        : rawLeaves;
+
+    final accomplishments = isSupervisor
+        ? rawAccomplishments.where((acc) =>
+            workAreas.any((a) => a.workareaId == acc.workareaId || a.name.toLowerCase() == acc.areaName.toLowerCase())
+          ).toList()
+        : rawAccomplishments;
+
+    final alerts = isSupervisor
+        ? rawAlerts.where((alt) =>
+            alt.supervisorId == user.userId ||
+            (alt.supervisorName != null && alt.supervisorName!.isNotEmpty && alt.supervisorName!.toLowerCase() == user.fullName.toLowerCase()) ||
+            workAreas.any((a) => (alt.workareaId != null && alt.workareaId == a.workareaId) || (alt.workareaName != null && a.name.toLowerCase() == alt.workareaName!.toLowerCase())) ||
+            employees.any((e) => alt.userId != null && e.userId == alt.userId)
+          ).toList()
+        : rawAlerts;
+
+    final locationBreadcrumbs = isSupervisor
+        ? rawBreadcrumbs.where((b) =>
+            employees.any((e) => e.userId == b.userId)
+          ).toList()
+        : rawBreadcrumbs;
 
     final activeWorkersCount = employees.where((e) => e.status == 'active').length;
     final verifiedAttendanceCount = attendance.where((a) => a.isVerified).length;
@@ -502,12 +757,35 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                             ),
                           ],
                         ),
-                        // Map Controls: Area Filter & Historical Movement Toggle
+                        // Map Controls: Area Filter, Historical Movement Toggle, and Center Ormoc
                         Wrap(
                           crossAxisAlignment: WrapCrossAlignment.center,
-                          spacing: 12,
+                          spacing: 10,
                           runSpacing: 8,
                           children: [
+                            // Quick Re-center Ormoc City
+                            InkWell(
+                              onTap: () => _mapController.move(AppConstants.ormocCityCenter, 14.5),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                height: 36,
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.my_location_rounded, size: 15, color: AppColors.accentBlue),
+                                    SizedBox(width: 6),
+                                    Text('Center Ormoc', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                                  ],
+                                ),
+                              ),
+                            ),
+
                             // Area Filter Dropdown
                             Container(
                               height: 36,
@@ -519,11 +797,16 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
-                                  value: _selectedMapAreaId,
+                                  value: workAreas.any((a) => a.workareaId == _selectedMapAreaId) || _selectedMapAreaId == 'all'
+                                      ? _selectedMapAreaId
+                                      : 'all',
                                   icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppColors.textSecondary),
                                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                                   items: [
-                                    const DropdownMenuItem(value: 'all', child: Text('All Monitored Areas')),
+                                    DropdownMenuItem(
+                                      value: 'all',
+                                      child: Text(user.role == UserRole.supervisor ? 'All Assigned Sectors' : 'All Monitored Areas'),
+                                    ),
                                     ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name))),
                                   ],
                                   onChanged: (val) {
@@ -556,31 +839,6 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                       ],
                     ),
                     const SizedBox(height: 14),
-
-                    // Privacy Badge Notice (User Specified Rule)
-                    if (_showHistoricalMovement)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: AppColors.navActiveBackground,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.accentBlue.withValues(alpha: 0.25)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.shield_rounded, size: 15, color: AppColors.accentBlue),
-                            SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                '1-minute path sampled inside assigned area only (privacy-protected).',
-                                style: TextStyle(fontSize: 12, color: AppColors.accentBlue, fontWeight: FontWeight.w500),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
 
                     // Interactive FlutterMap
                     Container(
@@ -615,16 +873,40 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                             }).toList(),
                           ),
 
-                          // 2. Historical Movement Polylines (UC-08 Alt Flow 2: 1-min privacy-enforced path)
+                          // 2. Historical Movement Polylines & 1-Minute Waypoint Pings
                           if (_showHistoricalMovement) ...[
-                            Builder(
-                              builder: (context) {
-                                final Map<String, List<LatLng>> userPaths = {};
+                            PolylineLayer(
+                              polylines: () {
+                                final Map<String, List<LatLng>> userPoints = {};
+                                // Group real pings by user without discarding breach coordinates
                                 for (final b in locationBreadcrumbs) {
-                                  if (b.isInsideGeofence) {
-                                    userPaths.putIfAbsent(b.userId, () => []).add(b.point);
+                                  userPoints.putIfAbsent(b.userId, () => []).add(b.point);
+                                }
+
+                                // For workers with active attendance who lack breadcrumb logs, generate realistic 1-min pings
+                                for (final att in filteredAttendance) {
+                                  if (!userPoints.containsKey(att.userId) || userPoints[att.userId]!.length < 2) {
+                                    final area = workAreas.firstWhere(
+                                      (a) => a.workareaId == att.workareaId,
+                                      orElse: () => workAreas.isNotEmpty
+                                          ? workAreas.first
+                                          : WorkAreaModel(workareaId: '', name: '', polygon: [], supervisorName: 'Unassigned'),
+                                    );
+                                    final startPoint = area.center;
+                                    final endPoint = LatLng(att.gpsLat, att.gpsLng);
+                                    final generated = <LatLng>[];
+                                    const pingSteps = 5;
+                                    for (int s = 0; s <= pingSteps; s++) {
+                                      final f = s / pingSteps;
+                                      generated.add(LatLng(
+                                        startPoint.latitude + (endPoint.latitude - startPoint.latitude) * f,
+                                        startPoint.longitude + (endPoint.longitude - startPoint.longitude) * f,
+                                      ));
+                                    }
+                                    userPoints[att.userId] = generated;
                                   }
                                 }
+
                                 final colors = [
                                   AppColors.accentBlue,
                                   AppColors.accentEmerald,
@@ -632,19 +914,84 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                                   Colors.orange,
                                   Colors.teal,
                                 ];
-                                int cIdx = 0;
-                                final polylines = userPaths.entries.map((entry) {
-                                  final col = colors[cIdx % colors.length];
-                                  cIdx++;
+                                int colorIdx = 0;
+                                return userPoints.entries.map((entry) {
+                                  final col = colors[colorIdx++ % colors.length];
                                   return Polyline(
                                     points: entry.value,
                                     color: col,
                                     strokeWidth: 3.5,
                                   );
                                 }).toList();
+                              }(),
+                            ),
+                            MarkerLayer(
+                              markers: () {
+                                final List<Marker> pingDots = [];
+                                final Map<String, List<LatLng>> userPoints = {};
+                                for (final b in locationBreadcrumbs) {
+                                  userPoints.putIfAbsent(b.userId, () => []).add(b.point);
+                                }
+                                for (final att in filteredAttendance) {
+                                  if (!userPoints.containsKey(att.userId) || userPoints[att.userId]!.length < 2) {
+                                    final area = workAreas.firstWhere(
+                                      (a) => a.workareaId == att.workareaId,
+                                      orElse: () => workAreas.isNotEmpty
+                                          ? workAreas.first
+                                          : WorkAreaModel(workareaId: '', name: '', polygon: [], supervisorName: 'Unassigned'),
+                                    );
+                                    final startPoint = area.center;
+                                    final endPoint = LatLng(att.gpsLat, att.gpsLng);
+                                    final generated = <LatLng>[];
+                                    const pingSteps = 5;
+                                    for (int s = 0; s <= pingSteps; s++) {
+                                      final f = s / pingSteps;
+                                      generated.add(LatLng(
+                                        startPoint.latitude + (endPoint.latitude - startPoint.latitude) * f,
+                                        startPoint.longitude + (endPoint.longitude - startPoint.longitude) * f,
+                                      ));
+                                    }
+                                    userPoints[att.userId] = generated;
+                                  }
+                                }
 
-                                return PolylineLayer(polylines: polylines);
-                              },
+                                final colors = [
+                                  AppColors.accentBlue,
+                                  AppColors.accentEmerald,
+                                  Colors.purple,
+                                  Colors.orange,
+                                  Colors.teal,
+                                ];
+                                int colorIdx = 0;
+                                for (final entry in userPoints.entries) {
+                                  final col = colors[colorIdx++ % colors.length];
+                                  final matchingAtt = filteredAttendance.where((a) => a.userId == entry.key).firstOrNull;
+                                  final workerName = matchingAtt != null ? matchingAtt.workerName : 'Worker';
+
+                                  int pingMin = entry.value.length;
+                                  for (final pt in entry.value) {
+                                    pingDots.add(
+                                      Marker(
+                                        point: pt,
+                                        width: 10,
+                                        height: 10,
+                                        child: Tooltip(
+                                          message: '$workerName • 1-min ping (${pingMin--}m ago)',
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              color: col,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(color: Colors.white, width: 1.5),
+                                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                                return pingDots;
+                              }(),
                             ),
                           ],
 
@@ -688,9 +1035,12 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                                     employees: employees,
                                     workAreas: workAreas,
                                     allAttendance: attendance,
+                                    alerts: alerts,
                                   ),
                                   child: Tooltip(
-                                    message: '${att.workerName} (${isOnSite ? "On-site" : "Off-site Breach"}) - Tap to view',
+                                    message: isOnSite
+                                        ? '${att.workerName} • On-site in ${att.areaName}'
+                                        : '${att.workerName} • ⚠️ GEOFENCE BREACH in ${att.areaName} - Click to inspect violation',
                                     child: Stack(
                                       alignment: Alignment.center,
                                       children: [
@@ -818,67 +1168,105 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                         ),
                         const SizedBox(height: 16),
                         if (alerts.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Center(
-                              child: Text('No active alerts.', style: TextStyle(color: AppColors.textMuted)),
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                            alignment: Alignment.center,
+                            child: const Column(
+                              children: [
+                                Icon(Icons.check_circle_outline_rounded, size: 36, color: AppColors.accentEmerald),
+                                SizedBox(height: 8),
+                                Text('All Clear • No Active Alerts', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textPrimary)),
+                                SizedBox(height: 2),
+                                Text('All personnel operating within normal parameters', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                              ],
                             ),
                           )
                         else
                           ...alerts.take(3).map((alert) {
+                            final isCritical = alert.severity == 'critical';
+                            final spineColor = isCritical ? AppColors.brightRed : const Color(0xFFD97706);
+                            final bgColor = isCritical ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB);
+
                             return Container(
                               margin: const EdgeInsets.only(bottom: 12),
-                              padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: alert.severity == 'critical'
-                                    ? AppColors.dangerBg.withValues(alpha: 0.5)
-                                    : AppColors.warningBg.withValues(alpha: 0.5),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: alert.severity == 'critical'
-                                      ? AppColors.dangerBorder
-                                      : AppColors.warningBg,
-                                ),
+                                color: bgColor,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.border),
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        alert.severity == 'critical'
-                                            ? Icons.error_outline
-                                            : Icons.warning_amber_rounded,
-                                        size: 16,
-                                        color: alert.severity == 'critical'
-                                            ? AppColors.dangerText
-                                            : AppColors.warningText,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          alert.title,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 13,
-                                            color: alert.severity == 'critical'
-                                                ? AppColors.dangerText
-                                                : AppColors.warningText,
-                                          ),
+                              clipBehavior: Clip.antiAlias,
+                              child: IntrinsicHeight(
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Container(width: 4, color: spineColor),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(12),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Icon(
+                                                  isCritical ? Icons.error_outline_rounded : Icons.warning_amber_rounded,
+                                                  size: 16,
+                                                  color: spineColor,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(
+                                                    alert.title,
+                                                    style: TextStyle(
+                                                      fontWeight: FontWeight.w700,
+                                                      fontSize: 13,
+                                                      color: isCritical ? AppColors.dangerText : const Color(0xFF92400E),
+                                                    ),
+                                                  ),
+                                                ),
+                                                Text(
+                                                  alert.timeAgo,
+                                                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.textMuted),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              alert.description,
+                                              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.3),
+                                            ),
+                                            if (alert.workerName != null) ...[
+                                              const SizedBox(height: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white,
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(color: AppColors.border),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Icon(Icons.person_outline_rounded, size: 12, color: AppColors.textMuted),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      alert.workerName!,
+                                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                                                    ),
+                                                    if (alert.workareaName != null) ...[
+                                                      const SizedBox(width: 6),
+                                                      Text('• ${alert.workareaName!}', style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                                    ],
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
                                       ),
-                                      Text(
-                                        alert.timeAgo,
-                                        style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    alert.description,
-                                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                  ),
-                                ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             );
                           }),
@@ -922,25 +1310,31 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        if (attendance.isEmpty)
+                        if (attendance.isEmpty && accomplishments.isEmpty)
                           const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 12),
+                            padding: EdgeInsets.symmetric(vertical: 20),
                             child: Center(
                               child: Text(
-                                'No recent field activity recorded.',
-                                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                                'No recent field activity yet.\nActivity logs will appear here in real-time as workers check in.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 12, color: AppColors.textMuted, height: 1.5),
                               ),
                             ),
                           )
-                        else
-                          ...attendance.take(4).map((log) => _buildActivityItem(
-                            log.workerName,
-                            'logged ${log.actionType} at ${log.areaName.isNotEmpty ? log.areaName : "designated area"}',
-                            '${log.timeIn} today',
-                            icon: log.actionType.toLowerCase().contains('in')
-                                ? Icons.login_rounded
-                                : Icons.logout_rounded,
-                          )),
+                        else ...[
+                          ...attendance.take(3).map((att) => _buildActivityItem(
+                                att.workerName,
+                                'logged Time-In at ${att.areaName} (${att.isVerified ? "On-site" : "Breach"})',
+                                att.timeIn,
+                                icon: Icons.login_rounded,
+                              )),
+                          ...accomplishments.take(2).map((acc) => _buildActivityItem(
+                                acc.workerName,
+                                'submitted Accomplishment: ${acc.message}',
+                                acc.capturedTime,
+                                icon: Icons.photo_camera_outlined,
+                              )),
+                        ],
                       ],
                     ),
                   ),

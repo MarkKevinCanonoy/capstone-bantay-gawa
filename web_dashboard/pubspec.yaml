@@ -43,6 +43,8 @@ dependencies:
   csv: ^8.0.0
   google_fonts: ^8.2.1
   supabase_flutter: ^2.17.2
+  image: ^4.3.0
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:
@@ -67,7 +69,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - images/official_seal.png
+    - assets/images/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

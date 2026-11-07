@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/utils/uuid_helper.dart';
 import '../models/user_model.dart';
 import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
@@ -15,315 +16,256 @@ import 'data_repository.dart';
 class SupabaseRepository implements DataRepository {
   SupabaseClient get _client => Supabase.instance.client;
 
-  bool _isValidUuid(String? id) {
-    if (id == null) return false;
-    return RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(id);
-  }
-
-  // Helper to parse WKT POLYGON((lng lat, lng lat, ...)) or GeoJSON
-  List<LatLng> _parseWktPolygon(dynamic geom) {
-    if (geom == null) return const [];
-    try {
-      if (geom is Map && geom['coordinates'] is List) {
-        final coords = (geom['coordinates'] as List).first as List;
-        return coords.map((c) {
-          final list = c as List;
-          return LatLng((list[1] as num).toDouble(), (list[0] as num).toDouble());
-        }).toList();
-      }
-      final str = geom.toString();
-      if (!str.contains('POLYGON')) return const [];
-      final coordsStr = str.replaceAll(RegExp(r'[A-Za-z()]+'), '').trim();
-      final pairs = coordsStr.split(',');
-      final List<LatLng> result = [];
-      for (var pair in pairs) {
-        final parts = pair.trim().split(RegExp(r'\s+'));
-        if (parts.length >= 2) {
-          final lng = double.tryParse(parts[0]);
-          final lat = double.tryParse(parts[1]);
-          if (lat != null && lng != null) {
-            result.add(LatLng(lat, lng));
-          }
-        }
-      }
-      return result;
-    } catch (e) {
-      debugPrint('Error parsing geometry: $e');
-      return const [];
-    }
-  }
-
   // ==========================================
   // Work Areas
   // ==========================================
   @override
   Future<List<WorkAreaModel>> getWorkAreas({String? supervisorId}) async {
     try {
-      dynamic response;
-      try {
-        var query = _client.from('work_areas').select('*, users!work_areas_supervisor_id_fkey(first_name, last_name), work_area_assignments(assignment_id, is_active)');
-        if (supervisorId != null && supervisorId.isNotEmpty && _isValidUuid(supervisorId)) {
-          query = query.eq('supervisor_id', supervisorId);
-        }
-        response = await query.order('name');
-      } catch (joinErr) {
-        debugPrint('Note: Embedded supervisor join skipped, fetching simple: $joinErr');
-        var query = _client.from('work_areas').select('*');
-        if (supervisorId != null && supervisorId.isNotEmpty && _isValidUuid(supervisorId)) {
-          query = query.eq('supervisor_id', supervisorId);
-        }
-        response = await query.order('name');
+      var query = _client.from('work_areas').select('*, users!supervisor_id(first_name, last_name)');
+      if (supervisorId != null && supervisorId.isNotEmpty) {
+        query = query.eq('supervisor_id', supervisorId);
+      }
+      final res = await query.order('name');
+      final areas = (res as List).map((map) => WorkAreaModel.fromJson(map as Map<String, dynamic>)).toList();
+
+      // Count active workers per area
+      final assignments = await _client
+          .from('work_area_assignments')
+          .select('workarea_id')
+          .eq('is_active', true);
+      final Map<String, int> counts = {};
+      for (final a in (assignments as List)) {
+        final id = a['workarea_id']?.toString() ?? '';
+        if (id.isNotEmpty) counts[id] = (counts[id] ?? 0) + 1;
       }
 
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) return const [];
-
-      return data.map((json) {
-        final supervisor = json['users'];
-        String supName = 'Unassigned';
-        if (supervisor != null && supervisor is Map) {
-          supName = '${supervisor['first_name'] ?? ''} ${supervisor['last_name'] ?? ''}'.trim();
-        }
-
-        final polygon = _parseWktPolygon(json['geometry']);
-        final assignments = json['work_area_assignments'];
-        int activeCount = 0;
-        if (assignments is List) {
-          activeCount = assignments.where((a) => a['is_active'] == true).length;
-        }
-
-        // Calculate area in km² dynamically from polygon if available
-        double areaKm = 0.0;
-        if (polygon.length >= 3) {
-          const double latKm = 110.574;
-          final double lonKm = 111.320 * 0.9816;
-          for (int i = 0; i < polygon.length; i++) {
-            final j = (i + 1) % polygon.length;
-            final xi = polygon[i].longitude * lonKm;
-            final yi = polygon[i].latitude * latKm;
-            final xj = polygon[j].longitude * lonKm;
-            final yj = polygon[j].latitude * latKm;
-            areaKm += (xi * yj) - (xj * yi);
-          }
-          areaKm = areaKm.abs() / 2.0;
-        }
-
-        return WorkAreaModel(
-          workareaId: json['workarea_id']?.toString() ?? '',
-          name: json['name']?.toString() ?? '',
-          description: json['description']?.toString(),
-          supervisorId: json['supervisor_id']?.toString(),
-          supervisorName: supName.isEmpty ? 'Unassigned' : supName,
-          polygon: polygon.isNotEmpty ? polygon : const [LatLng(11.0050, 124.6075)],
-          assignedCount: activeCount,
-          status: 'Active',
-          areaSqKm: areaKm > 0.0 ? '${areaKm.toStringAsFixed(2)} km²' : '0.00 km²',
-        );
-      }).toList();
+      return areas.map((a) => a.copyWith(assignedCount: counts[a.workareaId] ?? 0)).toList();
     } catch (e) {
-      debugPrint('Supabase getWorkAreas error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getWorkAreas error: $e');
+      return [];
     }
   }
 
   @override
   Future<void> addWorkArea(WorkAreaModel area) async {
     try {
-      final payload = <String, dynamic>{
-        'name': area.name,
-        'description': area.description,
-      };
-      if (_isValidUuid(area.workareaId)) {
-        payload['workarea_id'] = area.workareaId;
+      final payload = area.toSupabaseJson();
+      if (payload['workarea_id'] == null || (payload['workarea_id'] as String).isEmpty) {
+        payload['workarea_id'] = UuidHelper.generate();
       }
-      if (_isValidUuid(area.supervisorId)) {
-        payload['supervisor_id'] = area.supervisorId;
+
+      // Try inserting with status column
+      try {
+        final payloadWithStatus = Map<String, dynamic>.from(payload);
+        payloadWithStatus['status'] = area.status;
+        await _client.from('work_areas').insert(payloadWithStatus);
+        return;
+      } catch (statusErr) {
+        debugPrint('Supabase work_areas status column not available on insert: $statusErr');
       }
-      if (area.polygon.length >= 3) {
-        final closedPoints = [
-          ...area.polygon.map((p) => [p.longitude, p.latitude]),
-          [area.polygon.first.longitude, area.polygon.first.latitude],
-        ];
-        payload['geometry'] = {
-          'type': 'Polygon',
-          'coordinates': [closedPoints],
-        };
+
+      // Fallback: encode status in description
+      if (area.status == 'Inactive') {
+        final curDesc = payload['description']?.toString() ?? '';
+        payload['description'] = (curDesc.isEmpty ? '' : '$curDesc ') + '[STATUS:Inactive]';
       }
       await _client.from('work_areas').insert(payload);
     } catch (e) {
-      debugPrint('Supabase addWorkArea error: $e');
+      debugPrint('SupabaseRepository addWorkArea error: $e');
+      rethrow;
     }
   }
 
   @override
   Future<void> updateWorkArea(WorkAreaModel area) async {
     try {
-      if (!_isValidUuid(area.workareaId)) return;
-      final payload = <String, dynamic>{
-        'name': area.name,
-        'description': area.description,
-        'updated_at': DateTime.now().toIso8601String(),
-        'supervisor_id': _isValidUuid(area.supervisorId) ? area.supervisorId : null,
-      };
-      if (area.polygon.length >= 3) {
-        final closedPoints = [
-          ...area.polygon.map((p) => [p.longitude, p.latitude]),
-          [area.polygon.first.longitude, area.polygon.first.latitude],
-        ];
-        payload['geometry'] = {
-          'type': 'Polygon',
-          'coordinates': [closedPoints],
-        };
+      final payload = area.toSupabaseJson();
+
+      // Try updating with status column
+      try {
+        final payloadWithStatus = Map<String, dynamic>.from(payload);
+        payloadWithStatus['status'] = area.status;
+        await _client.from('work_areas').update(payloadWithStatus).eq('workarea_id', area.workareaId);
+        return;
+      } catch (statusErr) {
+        debugPrint('Supabase work_areas status column not available on update: $statusErr');
       }
+
+      // Fallback: encode status in description
+      var curDesc = payload['description']?.toString() ?? '';
+      curDesc = curDesc.replaceAll(RegExp(r'\[STATUS:(Active|Inactive)\]'), '').trim();
+      if (area.status == 'Inactive') {
+        curDesc = (curDesc.isEmpty ? '' : '$curDesc ') + '[STATUS:Inactive]';
+      }
+      payload['description'] = curDesc.isEmpty ? null : curDesc;
       await _client.from('work_areas').update(payload).eq('workarea_id', area.workareaId);
     } catch (e) {
-      debugPrint('Supabase updateWorkArea error: $e');
+      debugPrint('SupabaseRepository updateWorkArea error: $e');
+      rethrow;
     }
   }
 
   @override
   Future<void> deleteWorkArea(String areaId) async {
     try {
-      if (!_isValidUuid(areaId)) return;
       await _client.from('work_areas').delete().eq('workarea_id', areaId);
     } catch (e) {
-      debugPrint('Supabase deleteWorkArea error: $e');
+      debugPrint('SupabaseRepository deleteWorkArea error: $e');
+      rethrow;
     }
   }
 
   // ==========================================
-  // Users / Employees & Assignments
+  // Users & Worker Assignments
   // ==========================================
   @override
   Future<List<UserModel>> getUsers({String? areaId, UserRole? role}) async {
     try {
-      final query = _client.from('users').select('''
+      final res = await _client.from('users').select('''
         *,
-        roles(name),
+        roles(role_id, name),
+        credit_balance(current_score),
         work_area_assignments(workarea_id, is_active, work_areas(name)),
-        credit_balance(current_score)
-      ''');
+        schedules(schedule_id, start_time, end_time, days, created_at)
+      ''').order('last_name');
 
-      final response = await query.order('first_name');
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) return const [];
-
-      var userList = data.map((json) {
-        final rolesData = json['roles'];
-        String rName = '';
-        if (rolesData is Map) {
-          rName = rolesData['name']?.toString() ?? '';
-        }
-        final roleId = json['role_id']?.toString() ?? '';
-        UserRole uRole = UserRole.worker;
-        if (rName.toLowerCase().contains('admin') || roleId == '00000000-0000-0000-0000-000000000001') {
-          uRole = UserRole.admin;
-        } else if (rName.toLowerCase().contains('super') || roleId == '00000000-0000-0000-0000-000000000002') {
-          uRole = UserRole.supervisor;
-        }
-
-        String? assignedAreaId;
-        String? assignedAreaName;
-        final assignments = json['work_area_assignments'];
-        if (assignments is List && assignments.isNotEmpty) {
-          final activeAssign = assignments.firstWhere(
-            (a) => a['is_active'] == true,
-            orElse: () => assignments.first,
-          );
-          assignedAreaId = activeAssign['workarea_id']?.toString();
-          final area = activeAssign['work_areas'];
-          if (area is Map) {
-            assignedAreaName = area['name']?.toString();
-          }
-        }
-
-        int score = 100;
-        final creditData = json['credit_balance'];
-        if (creditData is Map) {
-          score = (creditData['current_score'] as num?)?.toInt() ?? 100;
-        } else if (creditData is List && creditData.isNotEmpty) {
-          score = (creditData.first['current_score'] as num?)?.toInt() ?? 100;
-        }
-
-        return UserModel(
-          userId: json['user_id']?.toString() ?? '',
-          username: json['username']?.toString() ?? '',
-          firstName: json['first_name']?.toString() ?? '',
-          lastName: json['last_name']?.toString() ?? '',
-          contactNumber: json['contact_number']?.toString() ?? '',
-          qrToken: json['qr_token']?.toString(),
-          role: uRole,
-          status: json['status']?.toString() ?? 'active',
-          assignedAreaId: assignedAreaId,
-          assignedAreaName: assignedAreaName,
-          creditScore: score,
-        );
-      }).toList();
+      var list = (res as List).map((m) => UserModel.fromJson(m as Map<String, dynamic>)).toList();
 
       if (role != null) {
-        userList = userList.where((u) => u.role == role).toList();
+        list = list.where((u) => u.role == role).toList();
       }
-      if (areaId != null && areaId.isNotEmpty && _isValidUuid(areaId)) {
-        userList = userList.where((u) => u.assignedAreaId == areaId).toList();
+      if (areaId != null && areaId.isNotEmpty) {
+        list = list.where((u) => u.assignedAreaId == areaId).toList();
       }
 
-      return userList;
+      return list;
     } catch (e) {
-      debugPrint('Supabase getUsers error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getUsers error: $e');
+      return [];
     }
   }
 
   @override
   Future<void> addUser(UserModel user) async {
     try {
-      String roleUuid = '00000000-0000-0000-0000-000000000003';
-      if (user.role == UserRole.admin) {
-        roleUuid = '00000000-0000-0000-0000-000000000001';
-      } else if (user.role == UserRole.supervisor) {
-        roleUuid = '00000000-0000-0000-0000-000000000002';
+      // Validate or generate RFC4122 v4 UUID
+      final uuidRegex = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false);
+      final userId = (user.userId.isNotEmpty && uuidRegex.hasMatch(user.userId))
+          ? user.userId
+          : UuidHelper.generate();
+
+      // Resolve role_id dynamically from database if possible, fallback to AppConstants
+      String roleId = user.role == UserRole.admin
+          ? AppConstants.roleAdminId
+          : user.role == UserRole.supervisor
+              ? AppConstants.roleSupervisorId
+              : AppConstants.roleWorkerId;
+
+      try {
+        final roleKeyword = user.role == UserRole.admin
+            ? 'Admin'
+            : user.role == UserRole.supervisor
+                ? 'Supervisor'
+                : 'Worker';
+        final roleRes = await _client
+            .from('roles')
+            .select('role_id')
+            .ilike('name', '%$roleKeyword%')
+            .limit(1)
+            .maybeSingle();
+        if (roleRes != null && roleRes['role_id'] != null) {
+          roleId = roleRes['role_id'].toString();
+        }
+      } catch (roleErr) {
+        debugPrint('Dynamic role resolution warning: $roleErr');
       }
 
-      final payload = <String, dynamic>{
+      final insertData = <String, dynamic>{
+        'user_id': userId,
         'username': user.username,
         'first_name': user.firstName,
         'last_name': user.lastName,
         'contact_number': user.contactNumber,
-        'qr_token': user.qrToken,
-        'role_id': roleUuid,
+        'qr_token': user.qrToken ?? 'QR-${user.username}',
+        'role_id': roleId,
         'status': user.status,
       };
-      if (_isValidUuid(user.userId)) {
-        payload['user_id'] = user.userId;
+
+      if (user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty) {
+        insertData['face_embedding'] = user.faceEmbedding;
       }
 
-      final insertedUser = await _client.from('users').insert(payload).select().single();
-      final actualUserId = insertedUser['user_id']?.toString() ?? user.userId;
+      await _client.from('users').insert(insertData);
 
-      await _client.from('credit_balance').insert({
-        'user_id': actualUserId,
-        'current_score': user.creditScore,
-      });
+      // Insert starting credit balance strictly for Field Workers (SRS UC-18)
+      if (user.role == UserRole.worker) {
+        try {
+          await _client.from('credit_balance').upsert({
+            'user_id': userId,
+            'current_score': user.creditScore,
+          }, onConflict: 'user_id');
+        } catch (cbErr) {
+          debugPrint('SupabaseRepository credit_balance upsert warning: $cbErr');
+        }
+      }
 
-      if (user.assignedAreaId != null && _isValidUuid(user.assignedAreaId)) {
-        await _client.from('work_area_assignments').insert({
-          'user_id': actualUserId,
-          'workarea_id': user.assignedAreaId,
-          'is_active': true,
-        });
+      // If initial shift schedule assigned (SRS FR-12)
+      if (user.schedule.isNotEmpty && user.schedule != 'Unassigned') {
+        try {
+          final parts = user.schedule.split(' ');
+          final days = parts.isNotEmpty ? parts.first : 'Mon-Fri';
+          var st = '08:00';
+          var et = '17:00';
+          if (user.schedule.contains('-')) {
+            final timePart = user.schedule.substring(days.length).trim();
+            final times = timePart.split('-').map((t) => t.trim()).toList();
+            if (times.length == 2) {
+              st = times[0];
+              et = times[1];
+            }
+          }
+          await _client.from('schedules').insert({
+            'user_id': userId,
+            'start_time': st,
+            'end_time': et,
+            'days': days,
+          });
+        } catch (schedErr) {
+          debugPrint('SupabaseRepository initial schedule insert notice: $schedErr');
+        }
+      }
+
+      // If work area assigned
+      if (user.assignedAreaId != null && user.assignedAreaId!.isNotEmpty) {
+        await assignWorkerToArea(
+          workerId: userId,
+          areaId: user.assignedAreaId,
+          areaName: user.assignedAreaName,
+        );
       }
     } catch (e) {
-      debugPrint('Supabase addUser error: $e');
+      debugPrint('SupabaseRepository addUser error: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> updateUserStatus(String userId, String status) async {
+    try {
+      await _client.from('users').update({'status': status}).eq('user_id', userId);
+    } catch (e) {
+      debugPrint('SupabaseRepository updateUserStatus error: $e');
     }
   }
 
   @override
   Future<void> deleteUser(String userId) async {
     try {
-      if (!_isValidUuid(userId)) return;
       await _client.from('users').delete().eq('user_id', userId);
     } catch (e) {
-      debugPrint('Supabase deleteUser error: $e');
+      debugPrint('SupabaseRepository deleteUser error: $e');
+      rethrow;
     }
   }
 
@@ -334,17 +276,24 @@ class SupabaseRepository implements DataRepository {
     String? areaName,
   }) async {
     try {
-      if (!_isValidUuid(workerId)) return;
-      await _client.from('work_area_assignments').update({'is_active': false}).eq('user_id', workerId);
-      if (areaId != null && _isValidUuid(areaId)) {
+      // Deactivate current active assignments
+      await _client
+          .from('work_area_assignments')
+          .update({'is_active': false})
+          .eq('user_id', workerId);
+
+      // If assigning to a new area
+      if (areaId != null && areaId.isNotEmpty) {
         await _client.from('work_area_assignments').insert({
+          'assignment_id': UuidHelper.generate(),
           'user_id': workerId,
           'workarea_id': areaId,
           'is_active': true,
         });
       }
     } catch (e) {
-      debugPrint('Supabase assignWorkerToArea error: $e');
+      debugPrint('SupabaseRepository assignWorkerToArea error: $e');
+      rethrow;
     }
   }
 
@@ -355,86 +304,82 @@ class SupabaseRepository implements DataRepository {
     }
   }
 
+  @override
+  Future<void> updateWorkerSchedule({
+    required String workerId,
+    required String startTime,
+    required String endTime,
+    required String days,
+    String? areaName,
+  }) async {
+    try {
+      // 1. Insert historical schedule record (specs/schema.sql schedules table)
+      await _client.from('schedules').insert({
+        'user_id': workerId,
+        'start_time': startTime,
+        'end_time': endTime,
+        'days': days,
+      });
+
+      // 2. Dispatch automated in-app assignment notification (specs/schema.sql notifications table)
+      final locationNotice = areaName != null && areaName.isNotEmpty ? ' sa $areaName' : '';
+      await _client.from('notifications').insert({
+        'receiver_id': workerId,
+        'type': 'announcement',
+        'message': 'Nausab ang imong iskedyul sa trabaho: $days $startTime - $endTime$locationNotice. Palihug tan-awa ang imong iskedyul sa dashboard.',
+        'is_read': false,
+      });
+    } catch (e) {
+      debugPrint('SupabaseRepository updateWorkerSchedule error: $e');
+      rethrow;
+    }
+  }
+
   // ==========================================
   // Attendance & Location Tracking
   // ==========================================
   @override
   Future<List<AttendanceModel>> getAttendanceLogs({String? areaId, String? workerId}) async {
     try {
-      var query = _client.from('attendance').select('*, users(first_name, last_name, username), work_areas(name)');
-      if (areaId != null && areaId.isNotEmpty) {
-        query = query.eq('workarea_id', areaId);
-      }
+      var query = _client.from('attendance').select('''
+        *,
+        users(first_name, last_name, qr_token),
+        work_areas(name)
+      ''');
+
       if (workerId != null && workerId.isNotEmpty) {
         query = query.eq('user_id', workerId);
       }
-      final response = await query.order('timestamp', ascending: false);
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) return const [];
+      if (areaId != null && areaId.isNotEmpty) {
+        query = query.eq('workarea_id', areaId);
+      }
 
-      return data.map((json) {
-        final user = json['users'];
-        final area = json['work_areas'];
-        String wName = 'Field Worker';
-        if (user is Map) {
-          wName = '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
-        }
-        String aName = 'General Work Area';
-        if (area is Map) {
-          aName = area['name']?.toString() ?? aName;
-        }
-
-        final ts = DateTime.tryParse(json['timestamp']?.toString() ?? '') ?? DateTime.now();
-
-        return AttendanceModel(
-          attendanceId: json['attendance_id']?.toString() ?? '',
-          userId: json['user_id']?.toString() ?? '',
-          workerName: wName.isEmpty ? 'Field Worker' : wName,
-          workerEmpId: 'EMP-${json['user_id']?.toString().substring(0, 4).toUpperCase()}',
-          workareaId: json['workarea_id']?.toString() ?? '',
-          areaName: aName,
-          actionType: json['action_type']?.toString() ?? 'time-in',
-          timestamp: ts,
-          gpsLat: (json['gps_lat'] as num?)?.toDouble() ?? 11.0050,
-          gpsLng: (json['gps_lng'] as num?)?.toDouble() ?? 124.6075,
-          imageUrl: json['image_url']?.toString(),
-          faceMatch: json['face_match'] == true,
-          isSynced: json['is_synced'] == true,
-        );
-      }).toList();
+      final res = await query.order('timestamp', ascending: false);
+      return (res as List).map((m) => AttendanceModel.fromJson(m as Map<String, dynamic>)).toList();
     } catch (e) {
-      debugPrint('Supabase getAttendanceLogs error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getAttendanceLogs error: $e');
+      return [];
     }
   }
 
   @override
-  Future<void> toggleAttendanceVerify(String attendanceId) async {}
+  Future<void> toggleAttendanceVerify(String attendanceId) async {
+    // Attendance records are immutable biometric logs authenticated on-device.
+    // We intentionally do not mutate `face_match` as it represents the raw biometric scan outcome.
+  }
 
   @override
   Future<List<LocationTrackingModel>> getLocationBreadcrumbs({String? userId, String? areaId}) async {
     try {
-      var query = _client.from('location_tracking').select('*, users(first_name, last_name)');
+      var query = _client.from('location_tracking').select('*');
       if (userId != null && userId.isNotEmpty) {
         query = query.eq('user_id', userId);
       }
-      final response = await query.order('timestamp', ascending: false).limit(50);
-      final List<dynamic> data = response as List<dynamic>;
-      return data.map((json) {
-        return LocationTrackingModel(
-          locationId: json['location_id']?.toString() ?? '',
-          userId: json['user_id']?.toString() ?? '',
-          attendanceId: json['attendance_id']?.toString(),
-          gpsLat: (json['gps_lat'] as num?)?.toDouble() ?? 11.0050,
-          gpsLng: (json['gps_lng'] as num?)?.toDouble() ?? 124.6075,
-          timestamp: DateTime.tryParse(json['timestamp']?.toString() ?? '') ?? DateTime.now(),
-          isLastSeen: json['is_last_seen'] == true,
-          isInsideGeofence: json['is_last_seen'] != true,
-        );
-      }).toList();
+      final res = await query.order('timestamp', ascending: true).limit(100);
+      return (res as List).map((m) => LocationTrackingModel.fromJson(m as Map<String, dynamic>)).toList();
     } catch (e) {
-      debugPrint('Supabase getLocationBreadcrumbs error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getLocationBreadcrumbs error: $e');
+      return [];
     }
   }
 
@@ -443,57 +388,124 @@ class SupabaseRepository implements DataRepository {
   // ==========================================
   @override
   Future<List<AccomplishmentModel>> getAccomplishments({String? areaId}) async {
+    final validAreaId = (areaId != null && areaId.isNotEmpty && areaId != 'all') ? areaId : null;
+
+    // Tier 1: PostgREST column-based foreign key syntax
     try {
-      dynamic response;
-      try {
-        var query = _client.from('accomplishments').select('*, users!accomplishments_user_id_fkey(first_name, last_name), work_areas(name)');
-        if (areaId != null && areaId.isNotEmpty && _isValidUuid(areaId)) {
-          query = query.eq('workarea_id', areaId);
-        }
-        response = await query.order('created_at', ascending: false);
-      } catch (embedErr) {
-        debugPrint('Accomplishments embed error, falling back to simple select: $embedErr');
-        var query = _client.from('accomplishments').select('*');
-        if (areaId != null && areaId.isNotEmpty && _isValidUuid(areaId)) {
-          query = query.eq('workarea_id', areaId);
-        }
-        response = await query.order('created_at', ascending: false);
+      var query = _client.from('accomplishments').select('''
+        *,
+        users:users!user_id(first_name, last_name),
+        work_areas(name),
+        approver:users!approved_by(first_name, last_name)
+      ''');
+
+      if (validAreaId != null) {
+        query = query.eq('workarea_id', validAreaId);
       }
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) return const [];
 
-      return data.map((json) {
-        final user = json['users'];
-        final area = json['work_areas'];
-        String wName = 'Field Worker';
-        if (user is Map) {
-          wName = '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
-        }
-        String aName = 'General Work Area';
-        if (area is Map) {
-          aName = area['name']?.toString() ?? aName;
-        }
+      final res = await query.order('created_at', ascending: false);
+      return (res as List).map((m) => AccomplishmentModel.fromJson(m as Map<String, dynamic>)).toList();
+    } catch (_) {}
 
-        return AccomplishmentModel(
-          accomplishmentId: json['accomplishment_id']?.toString() ?? '',
-          userId: json['user_id']?.toString() ?? '',
-          workerName: wName.isEmpty ? 'Field Worker' : wName,
-          workareaId: json['workarea_id']?.toString() ?? '',
-          areaName: aName,
-          imageUrl: json['image_url']?.toString() ?? '',
-          capturedDate: json['captured_date']?.toString() ?? '',
-          capturedTime: json['captured_time']?.toString() ?? '',
-          capturedLat: (json['captured_lat'] as num?)?.toDouble() ?? 11.0050,
-          capturedLng: (json['captured_lng'] as num?)?.toDouble() ?? 124.6075,
-          message: json['message']?.toString() ?? '',
-          status: json['status']?.toString() ?? 'pending',
-          approvedBy: json['approved_by']?.toString(),
-          rejectionReason: json['rejection_reason']?.toString(),
+    // Tier 2: PostgREST constraint-name based foreign key syntax
+    try {
+      var query = _client.from('accomplishments').select('''
+        *,
+        users:users!accomplishments_user_id_fkey(first_name, last_name),
+        work_areas(name),
+        approver:users!accomplishments_approved_by_fkey(first_name, last_name)
+      ''');
+
+      if (validAreaId != null) {
+        query = query.eq('workarea_id', validAreaId);
+      }
+
+      final res = await query.order('created_at', ascending: false);
+      return (res as List).map((m) => AccomplishmentModel.fromJson(m as Map<String, dynamic>)).toList();
+    } catch (_) {}
+
+    // Tier 3: Work area join only + user name enrichment
+    try {
+      var query = _client.from('accomplishments').select('''
+        *,
+        work_areas(name)
+      ''');
+
+      if (validAreaId != null) {
+        query = query.eq('workarea_id', validAreaId);
+      }
+
+      final res = await query.order('created_at', ascending: false);
+      final list = (res as List).map((m) => AccomplishmentModel.fromJson(m as Map<String, dynamic>)).toList();
+      return await _enrichAccomplishments(list);
+    } catch (_) {}
+
+    // Tier 4: Fallback pure select without any relational embedding with multi-column order fallback
+    try {
+      var query = _client.from('accomplishments').select('*');
+      if (validAreaId != null) {
+        query = query.eq('workarea_id', validAreaId);
+      }
+      List res;
+      try {
+        res = await query.order('created_at', ascending: false);
+      } catch (_) {
+        try {
+          res = await query.order('captured_date', ascending: false);
+        } catch (_) {
+          res = await query;
+        }
+      }
+      final list = res.map((m) => AccomplishmentModel.fromJson(m as Map<String, dynamic>)).toList();
+      return await _enrichAccomplishments(list);
+    } catch (e) {
+      debugPrint('SupabaseRepository getAccomplishments fatal error: $e');
+      return [];
+    }
+  }
+
+  Future<List<AccomplishmentModel>> _enrichAccomplishments(List<AccomplishmentModel> list) async {
+    if (list.isEmpty) return list;
+    try {
+      final userIds = list.map((a) => a.userId).where((id) => id.isNotEmpty).toSet().toList();
+      final areaIds = list.map((a) => a.workareaId).where((id) => id.isNotEmpty).toSet().toList();
+
+      final userNames = <String, String>{};
+      final areaNames = <String, String>{};
+
+      if (userIds.isNotEmpty) {
+        try {
+          final usersRes = await _client.from('users').select('user_id, first_name, last_name');
+          for (final u in (usersRes as List)) {
+            final id = u['user_id']?.toString() ?? '';
+            final name = '${u['first_name'] ?? ''} ${u['last_name'] ?? ''}'.trim();
+            if (id.isNotEmpty && name.isNotEmpty) userNames[id] = name;
+          }
+        } catch (_) {}
+      }
+
+      if (areaIds.isNotEmpty) {
+        try {
+          final areasRes = await _client.from('work_areas').select('workarea_id, name');
+          for (final a in (areasRes as List)) {
+            final id = a['workarea_id']?.toString() ?? '';
+            final name = a['name']?.toString() ?? '';
+            if (id.isNotEmpty && name.isNotEmpty) areaNames[id] = name;
+          }
+        } catch (_) {}
+      }
+
+      return list.map((a) {
+        final realName = userNames[a.userId];
+        final realArea = areaNames[a.workareaId];
+        return a.copyWith(
+          workerName: (realName != null && realName.isNotEmpty) ? realName : a.workerName,
+          areaName: (realArea != null && realArea.isNotEmpty) ? realArea : a.areaName,
         );
       }).toList();
     } catch (e) {
-      debugPrint('Supabase getAccomplishments error: $e');
-      return const [];
+      debugPrint('Enrich accomplishments notice: $e');
+      return list;
     }
   }
 
@@ -506,61 +518,69 @@ class SupabaseRepository implements DataRepository {
     String? approvedByName,
   }) async {
     try {
-      final payload = <String, dynamic>{
+      await _client.from('accomplishments').update({
         'status': status,
+        if (approvedBy != null && approvedBy.isNotEmpty) 'approved_by': approvedBy,
         'approved_at': DateTime.now().toIso8601String(),
-        'rejection_reason': rejectionReason,
-      };
-      if (_isValidUuid(approvedBy)) {
-        payload['approved_by'] = approvedBy;
-      }
-      await _client.from('accomplishments').update(payload).eq('accomplishment_id', accomplishmentId);
+        if (rejectionReason != null) 'rejection_reason': rejectionReason,
+      }).eq('accomplishment_id', accomplishmentId);
     } catch (e) {
-      debugPrint('Supabase updateAccomplishmentStatus error: $e');
+      debugPrint('SupabaseRepository updateAccomplishmentStatus error: $e');
+      rethrow;
     }
   }
 
   // ==========================================
-  // Leaves
+  // Leave Requests
   // ==========================================
   @override
   Future<List<LeaveRequestModel>> getLeaveRequests({String? areaId}) async {
     try {
-      dynamic response;
-      try {
-        response = await _client.from('leave_requests').select('*, users!leave_requests_user_id_fkey(first_name, last_name)').order('created_at', ascending: false);
-      } catch (embedErr) {
-        debugPrint('Leave requests embed error, falling back to simple select: $embedErr');
-        response = await _client.from('leave_requests').select('*').order('created_at', ascending: false);
-      }
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) return const [];
+      final res = await _client.from('leave_requests').select('''
+        *,
+        users:users!leave_requests_user_id_fkey(first_name, last_name)
+      ''').order('created_at', ascending: false);
 
-      return data.map((json) {
-        final user = json['users'];
-        String wName = 'Field Worker';
-        if (user is Map) {
-          wName = '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
+      final list = (res as List).map((m) => LeaveRequestModel.fromJson(m as Map<String, dynamic>)).toList();
+
+      // Enrich rejectionReason for denied leaves from notifications
+      final deniedLeaves = list.where((l) => l.status == 'denied').toList();
+      if (deniedLeaves.isNotEmpty) {
+        try {
+          final notifs = await _client
+              .from('notifications')
+              .select('receiver_id, message, sent_at')
+              .ilike('message', '%Leave Request Denied%')
+              .order('sent_at', ascending: false);
+
+          final notifList = notifs as List;
+          return list.map((l) {
+            if (l.status != 'denied' || (l.rejectionReason != null && l.rejectionReason!.isNotEmpty)) {
+              return l;
+            }
+            final match = notifList.firstWhere(
+              (n) => n['receiver_id'] == l.userId && n['message'] != null && n['message'].toString().contains('Reason: '),
+              orElse: () => null,
+            );
+            if (match != null) {
+              final msg = match['message'].toString();
+              final idx = msg.indexOf('Reason: ');
+              if (idx != -1) {
+                final reason = msg.substring(idx + 8).trim();
+                return l.copyWith(rejectionReason: reason);
+              }
+            }
+            return l;
+          }).toList();
+        } catch (enrichErr) {
+          debugPrint('Error enriching leave rejection reasons from notifications: $enrichErr');
         }
+      }
 
-        return LeaveRequestModel(
-          leaveId: json['leave_id']?.toString() ?? '',
-          userId: json['user_id']?.toString() ?? '',
-          workerName: wName.isEmpty ? 'Field Worker' : wName,
-          areaName: 'General / Field',
-          type: json['type']?.toString() ?? 'Vacation Leave',
-          startDate: json['start_date']?.toString() ?? '',
-          endDate: json['end_date']?.toString() ?? '',
-          reason: json['reason']?.toString() ?? '',
-          imageUrl: json['image_url']?.toString(),
-          status: json['status']?.toString() ?? 'pending',
-          adminDecision: json['admin_decision']?.toString(),
-          decisionAt: DateTime.tryParse(json['decision_at']?.toString() ?? ''),
-        );
-      }).toList();
+      return list;
     } catch (e) {
-      debugPrint('Supabase getLeaveRequests error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getLeaveRequests error: $e');
+      return [];
     }
   }
 
@@ -575,14 +595,47 @@ class SupabaseRepository implements DataRepository {
       final payload = <String, dynamic>{
         'status': status,
         'decision_at': DateTime.now().toIso8601String(),
-        'reason': rejectionReason,
       };
-      if (_isValidUuid(adminId)) {
+      if (adminId != null && adminId.isNotEmpty && UuidHelper.isValid(adminId)) {
         payload['admin_decision'] = adminId;
       }
       await _client.from('leave_requests').update(payload).eq('leave_id', leaveId);
+
+      // Fulfill SRS UC-03 step 8: Send notification to the worker
+      try {
+        final leaveRow = await _client.from('leave_requests').select('user_id, type').eq('leave_id', leaveId).maybeSingle();
+        if (leaveRow != null && leaveRow['user_id'] != null) {
+          final targetUserId = leaveRow['user_id'] as String;
+          final leaveType = leaveRow['type']?.toString() ?? 'Leave';
+          if (status == 'denied') {
+            final reasonText = (rejectionReason != null && rejectionReason.isNotEmpty)
+                ? ' Reason: $rejectionReason'
+                : '';
+            await _client.from('notifications').insert({
+              'notification_id': UuidHelper.generate(),
+              if (adminId != null && UuidHelper.isValid(adminId)) 'sender_id': adminId,
+              'receiver_id': targetUserId,
+              'message': 'Leave Request Denied: Your $leaveType application has been denied.$reasonText',
+              'type': 'confidential',
+              'is_read': false,
+            });
+          } else if (status == 'approved') {
+            await _client.from('notifications').insert({
+              'notification_id': UuidHelper.generate(),
+              if (adminId != null && UuidHelper.isValid(adminId)) 'sender_id': adminId,
+              'receiver_id': targetUserId,
+              'message': 'Leave Request Approved: Your $leaveType application has been approved.',
+              'type': 'confidential',
+              'is_read': false,
+            });
+          }
+        }
+      } catch (notifErr) {
+        debugPrint('Notification dispatch on leave status change error: $notifErr');
+      }
     } catch (e) {
-      debugPrint('Supabase updateLeaveStatus error: $e');
+      debugPrint('SupabaseRepository updateLeaveStatus error: $e');
+      rethrow;
     }
   }
 
@@ -592,46 +645,48 @@ class SupabaseRepository implements DataRepository {
     required String supervisorId,
     required String supervisorName,
     required String comments,
-  }) async {}
+  }) async {
+    try {
+      // Notify admin of supervisor endorsement
+      await _client.from('notifications').insert({
+        'notification_id': UuidHelper.generate(),
+        'sender_id': supervisorId,
+        'message': 'Supervisor Endorsement: $supervisorName endorsed leave $leaveId. Notes: $comments',
+        'type': 'confidential',
+        'is_read': false,
+      });
+    } catch (e) {
+      debugPrint('SupabaseRepository endorseLeaveRequest error: $e');
+    }
+  }
 
   // ==========================================
-  // Alerts
+  // Alerts & Warnings
   // ==========================================
   @override
   Future<List<AlertModel>> getAlerts({String? areaId, String? category}) async {
     try {
-      dynamic response;
-      try {
-        response = await _client.from('alerts').select('*, users!alerts_user_id_fkey(first_name, last_name)').order('created_at', ascending: false);
-      } catch (embedErr) {
-        debugPrint('Alerts embed error, falling back to simple select: $embedErr');
-        response = await _client.from('alerts').select('*').order('created_at', ascending: false);
-      }
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) return const [];
+      final res = await _client.from('alerts').select('''
+        *,
+        users:users!alerts_user_id_fkey(
+          first_name,
+          last_name,
+          qr_token,
+          contact_number,
+          credit_balance(current_score),
+          work_area_assignments(workarea_id, is_active, work_areas(name))
+        )
+      ''').order('created_at', ascending: false);
 
-      return data.map((json) {
-        final user = json['users'];
-        String wName = 'Field Worker';
-        if (user is Map) {
-          wName = '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'.trim();
-        }
-        final createdAt = DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now();
-        return AlertModel(
-          alertId: json['alert_id']?.toString() ?? '',
-          title: json['type']?.toString() ?? 'System Alert',
-          type: json['type']?.toString() ?? 'Consecutive Absences',
-          description: json['message']?.toString() ?? '',
-          severity: 'warning',
-          timeAgo: 'Just now',
-          createdAt: createdAt,
-          workerName: wName,
-          isResolved: json['resolved_at'] != null,
-        );
-      }).toList();
+      var list = (res as List).map((m) => AlertModel.fromJson(m as Map<String, dynamic>)).toList();
+
+      if (category != null && category != 'all') {
+        list = list.where((a) => a.srsCategory == category).toList();
+      }
+      return list;
     } catch (e) {
-      debugPrint('Supabase getAlerts error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getAlerts error: $e');
+      return [];
     }
   }
 
@@ -642,7 +697,7 @@ class SupabaseRepository implements DataRepository {
         'resolved_at': DateTime.now().toIso8601String(),
       }).eq('alert_id', alertId);
     } catch (e) {
-      debugPrint('Supabase resolveAlert error: $e');
+      debugPrint('SupabaseRepository resolveAlert error: $e');
     }
   }
 
@@ -653,19 +708,70 @@ class SupabaseRepository implements DataRepository {
     required String message,
     String? supervisorId,
   }) async {
-    await resolveAlert(alertId);
-    await addBroadcast(
-      BroadcastModel(
-        notificationId: '',
-        senderId: '11111111-1111-1111-1111-111111111111',
-        recipients: 'Worker & Supervisor',
-        subject: 'Official Warning Notice',
-        message: message,
-        isConfidential: true,
-        deliveredCount: 2,
-        sentAt: DateTime.now(),
-      ),
-    );
+    try {
+      // 1. Deduct performance credit points for the warning notice
+      const int penaltyPoints = 5;
+      int currentScore = 100;
+      try {
+        final balRes = await _client
+            .from('credit_balance')
+            .select('current_score')
+            .eq('user_id', workerId)
+            .maybeSingle();
+        if (balRes != null && balRes['current_score'] != null) {
+          currentScore = (balRes['current_score'] as num).toInt();
+        }
+      } catch (e) {
+        debugPrint('Failed to query current credit_balance: $e');
+      }
+
+      final newScore = (currentScore - penaltyPoints).clamp(0, 100);
+
+      // 2. Upsert credit_balance with updated score
+      try {
+        await _client.from('credit_balance').upsert({
+          'user_id': workerId,
+          'current_score': newScore,
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'user_id');
+      } catch (e) {
+        debugPrint('Failed to update credit_balance: $e');
+      }
+
+      // 3. Insert audit log into credit_history
+      try {
+        await _client.from('credit_history').insert({
+          'history_id': UuidHelper.generate(),
+          'user_id': workerId,
+          'change_amount': -penaltyPoints,
+          'reason': 'Warning Notice: Official penalty issued for attendance irregularity',
+          'created_at': DateTime.now().toIso8601String(),
+        });
+      } catch (e) {
+        debugPrint('Failed to insert credit_history: $e');
+      }
+
+      // 4. Insert notification for worker
+      final notifPayload = <String, dynamic>{
+        'notification_id': UuidHelper.generate(),
+        'message': message,
+        'type': 'alert',
+        'is_read': false,
+        'sent_at': DateTime.now().toIso8601String(),
+      };
+      if (supervisorId != null && supervisorId.isNotEmpty && UuidHelper.isValid(supervisorId)) {
+        notifPayload['sender_id'] = supervisorId;
+      }
+      if (workerId.isNotEmpty && UuidHelper.isValid(workerId)) {
+        notifPayload['receiver_id'] = workerId;
+      }
+      await _client.from('notifications').insert(notifPayload);
+
+      // 5. Mark alert as resolved
+      await resolveAlert(alertId);
+    } catch (e) {
+      debugPrint('SupabaseRepository sendWarningForAlert error: $e');
+    }
   }
 
   @override
@@ -675,64 +781,60 @@ class SupabaseRepository implements DataRepository {
     String? reason,
   }) async {
     try {
-      final payload = <String, dynamic>{
+      final updateData = <String, dynamic>{
         'resolved_at': DateTime.now().toIso8601String(),
       };
-      if (_isValidUuid(adminId)) {
-        payload['resolved_by'] = adminId;
+      if (adminId.isNotEmpty && UuidHelper.isValid(adminId)) {
+        updateData['resolved_by'] = adminId;
       }
-      await _client.from('alerts').update(payload).eq('alert_id', alertId);
+      await _client.from('alerts').update(updateData).eq('alert_id', alertId);
     } catch (e) {
-      debugPrint('Supabase dismissAlert error: $e');
+      debugPrint('SupabaseRepository dismissAlert error: $e');
     }
   }
 
   // ==========================================
-  // Broadcasts
+  // Broadcasts & Notifications
   // ==========================================
   @override
   Future<List<BroadcastModel>> getBroadcasts() async {
     try {
-      final response = await _client.from('notifications').select().order('sent_at', ascending: false);
-      final List<dynamic> data = response as List<dynamic>;
-      if (data.isEmpty) return const [];
-
-      return data.map((json) {
-        return BroadcastModel(
-          notificationId: json['notification_id']?.toString() ?? '',
-          senderId: json['sender_id']?.toString() ?? '',
-          recipients: 'All Personnel',
-          subject: json['type']?.toString() ?? 'Notification',
-          message: json['message']?.toString() ?? '',
-          isConfidential: json['type'] == 'confidential',
-          deliveredCount: 1,
-          sentAt: DateTime.tryParse(json['sent_at']?.toString() ?? '') ?? DateTime.now(),
-        );
-      }).toList();
+      final res = await _client
+          .from('notifications')
+          .select('*, receiver:users!receiver_id(first_name, last_name, roles(name))')
+          .order('sent_at', ascending: false);
+      return (res as List).map((m) => BroadcastModel.fromJson(m as Map<String, dynamic>)).toList();
     } catch (e) {
-      debugPrint('Supabase getBroadcasts error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getBroadcasts joined notice: $e');
+      try {
+        final res = await _client.from('notifications').select('*').order('sent_at', ascending: false);
+        return (res as List).map((m) => BroadcastModel.fromJson(m as Map<String, dynamic>)).toList();
+      } catch (fallbackErr) {
+        debugPrint('SupabaseRepository getBroadcasts fallback error: $fallbackErr');
+        return [];
+      }
     }
   }
 
   @override
   Future<void> addBroadcast(BroadcastModel broadcast) async {
     try {
-      final payload = <String, dynamic>{
-        'message': broadcast.message,
-        'type': broadcast.isConfidential ? 'confidential' : 'announcement',
-        'is_read': false,
-        'sent_at': broadcast.sentAt.toIso8601String(),
-      };
-      if (_isValidUuid(broadcast.notificationId)) {
-        payload['notification_id'] = broadcast.notificationId;
+      final payload = broadcast.toSupabaseJson();
+      if (payload['notification_id'] == null ||
+          (payload['notification_id'] as String).isEmpty ||
+          !UuidHelper.isValid(payload['notification_id'] as String)) {
+        payload['notification_id'] = UuidHelper.generate();
       }
-      if (_isValidUuid(broadcast.senderId)) {
-        payload['sender_id'] = broadcast.senderId;
+      if (payload['sender_id'] != null && !UuidHelper.isValid(payload['sender_id'] as String)) {
+        payload.remove('sender_id');
+      }
+      if (payload['receiver_id'] != null && !UuidHelper.isValid(payload['receiver_id'] as String)) {
+        payload.remove('receiver_id');
       }
       await _client.from('notifications').insert(payload);
     } catch (e) {
-      debugPrint('Supabase addBroadcast error: $e');
+      debugPrint('SupabaseRepository addBroadcast error: $e');
+      rethrow;
     }
   }
 
@@ -743,47 +845,73 @@ class SupabaseRepository implements DataRepository {
     String? note,
     required String supervisorId,
     required String supervisorName,
-  }) async {}
+  }) async {
+    try {
+      await _client.from('notifications').insert({
+        'notification_id': UuidHelper.generate(),
+        'sender_id': supervisorId,
+        'message': 'Official Supervisor Transmittal: [$reportType] $summary. Note: ${note ?? "None"}',
+        'type': 'confidential',
+        'is_read': false,
+      });
+    } catch (e) {
+      debugPrint('SupabaseRepository sendReportToAdmin error: $e');
+    }
+  }
 
   // ==========================================
-  // Incidents
+  // Incidents / Worker Reports
   // ==========================================
   @override
-  Future<List<IncidentReportModel>> getIncidents({String? reporterId, String? workareaId, String? status}) async {
+  Future<List<IncidentReportModel>> getIncidents({
+    String? reporterId,
+    String? workareaId,
+    String? status,
+  }) async {
     try {
-      final response = await _client.from('worker_reports').select('*, users!worker_reports_reported_id_fkey(first_name, last_name)').order('created_at', ascending: false);
-      final List<dynamic> data = response as List<dynamic>;
-      return data.map((json) {
-        final reported = json['users'];
-        String rName = 'Field Worker';
-        if (reported is Map) {
-          rName = '${reported['first_name'] ?? ''} ${reported['last_name'] ?? ''}'.trim();
-        }
-        return IncidentReportModel(
-          reportId: json['report_id']?.toString() ?? '',
-          reporterId: json['reporter_id']?.toString() ?? '',
-          reporterName: 'Supervisor',
-          reportedId: json['reported_id']?.toString() ?? '',
-          reportedName: rName,
-          issueType: json['issue_type']?.toString() ?? 'General Issue',
-          workareaId: workareaId ?? '',
-          areaName: 'Field Assignment',
-          description: json['description']?.toString() ?? '',
-          status: json['status']?.toString() ?? 'pending',
-          createdAt: DateTime.tryParse(json['created_at']?.toString() ?? '') ?? DateTime.now(),
-        );
-      }).toList();
+      var query = _client.from('worker_reports').select('''
+        *,
+        reporter:users!worker_reports_reporter_id_fkey(first_name, last_name),
+        reported:users!worker_reports_reported_id_fkey(first_name, last_name)
+      ''');
+
+      if (reporterId != null && reporterId.isNotEmpty) {
+        query = query.eq('reporter_id', reporterId);
+      }
+      if (status != null && status.isNotEmpty) {
+        query = query.eq('status', status);
+      }
+
+      final res = await query.order('created_at', ascending: false);
+      return (res as List).map((m) => IncidentReportModel.fromJson(m as Map<String, dynamic>)).toList();
     } catch (e) {
-      debugPrint('Supabase getIncidents error: $e');
-      return const [];
+      debugPrint('SupabaseRepository getIncidents error: $e');
+      return [];
     }
   }
 
   @override
-  Future<void> addIncident(IncidentReportModel incident) async {}
+  Future<void> addIncident(IncidentReportModel incident) async {
+    try {
+      final payload = incident.toSupabaseJson();
+      if (payload['report_id'] == null || (payload['report_id'] as String).isEmpty) {
+        payload['report_id'] = UuidHelper.generate();
+      }
+      await _client.from('worker_reports').insert(payload);
+    } catch (e) {
+      debugPrint('SupabaseRepository addIncident error: $e');
+      rethrow;
+    }
+  }
 
   @override
-  Future<void> resolveIncident(String reportId) async {}
+  Future<void> resolveIncident(String reportId) async {
+    try {
+      await _client.from('worker_reports').update({'status': 'resolved'}).eq('report_id', reportId);
+    } catch (e) {
+      debugPrint('SupabaseRepository resolveIncident error: $e');
+    }
+  }
 
   @override
   Future<void> settleIncidentLocally(
@@ -791,7 +919,16 @@ class SupabaseRepository implements DataRepository {
     required String supervisorId,
     required String supervisorName,
     required String notes,
-  }) async {}
+  }) async {
+    try {
+      await _client.from('worker_reports').update({
+        'status': 'settled_locally',
+      }).eq('report_id', reportId);
+    } catch (e) {
+      debugPrint('SupabaseRepository settleIncidentLocally error: $e');
+      rethrow;
+    }
+  }
 
   @override
   Future<void> escalateIncidentToAdmin(
@@ -799,12 +936,44 @@ class SupabaseRepository implements DataRepository {
     required String supervisorId,
     required String supervisorName,
     required String notes,
-  }) async {}
+  }) async {
+    try {
+      await _client.from('worker_reports').update({
+        'status': 'escalated_to_admin',
+      }).eq('report_id', reportId);
+
+      // Dispatch escalation notice for central admin
+      try {
+        await _client.from('notifications').insert({
+          'notification_id': UuidHelper.generate(),
+          'user_id': null,
+          'title': 'Incident Escalated: Field Supervisor $supervisorName',
+          'message': 'Supervisor $supervisorName escalated field incident.\nRemarks: $notes',
+          'type': 'incident',
+          'is_read': false,
+        });
+      } catch (notifErr) {
+        debugPrint('Notification dispatch on incident escalation error: $notifErr');
+      }
+    } catch (e) {
+      debugPrint('SupabaseRepository escalateIncidentToAdmin error: $e');
+      rethrow;
+    }
+  }
 
   @override
   Future<void> resolveIncidentByAdmin(
     String reportId, {
     required String adminId,
     required String resolutionNotes,
-  }) async {}
+  }) async {
+    try {
+      await _client.from('worker_reports').update({
+        'status': 'resolved',
+      }).eq('report_id', reportId);
+    } catch (e) {
+      debugPrint('SupabaseRepository resolveIncidentByAdmin error: $e');
+      rethrow;
+    }
+  }
 }

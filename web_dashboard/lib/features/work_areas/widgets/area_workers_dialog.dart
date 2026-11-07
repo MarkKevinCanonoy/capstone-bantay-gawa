@@ -140,6 +140,332 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
     await _loadWorkers();
   }
 
+  Widget _buildShiftBadge(String schedule) {
+    String label = schedule;
+    IconData icon = Icons.schedule_rounded;
+    Color color = AppColors.textSecondary;
+    Color bg = AppColors.surfaceSubtle;
+
+    if (schedule.contains('06:00') || schedule.contains('11:00') || schedule.toLowerCase().contains('am')) {
+      label = 'AM (06:00 - 11:00)';
+      icon = Icons.wb_sunny_outlined;
+      color = const Color(0xFFD97706);
+      bg = const Color(0xFFFEF3C7);
+    } else if (schedule.contains('13:00') || (schedule.contains('17:00') && schedule.contains('13'))) {
+      label = 'PM (13:00 - 17:00)';
+      icon = Icons.wb_twilight_outlined;
+      color = const Color(0xFF7C3AED);
+      bg = const Color(0xFFEDE9FE);
+    } else if (schedule.contains('08:00') && schedule.contains('17:00')) {
+      label = 'Full (08:00 - 17:00)';
+      icon = Icons.apartment_outlined;
+      color = AppColors.accentBlue;
+      bg = AppColors.accentBlue.withValues(alpha: 0.1);
+    } else if (schedule == 'Unassigned') {
+      label = 'No Shift';
+      icon = Icons.schedule_outlined;
+      color = AppColors.textMuted;
+      bg = AppColors.surfaceSubtle;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
+        ],
+      ),
+    );
+  }
+
+  void _showEditShiftDialog(UserModel worker) {
+    String selectedPreset = 'AM';
+    String startTime = '06:00';
+    String endTime = '11:00';
+    String selectedDays = 'Mon-Fri';
+    bool isCustom = false;
+    bool isSaving = false;
+
+    if (worker.schedule.contains('13:00') || (worker.schedule.contains('17:00') && worker.schedule.contains('13'))) {
+      selectedPreset = 'PM';
+      startTime = '13:00';
+      endTime = '17:00';
+    } else if (worker.schedule.contains('08:00') && worker.schedule.contains('17:00')) {
+      selectedPreset = 'Full';
+      startTime = '08:00';
+      endTime = '17:00';
+    } else if (worker.schedule.contains('06:00') || worker.schedule.contains('11:00')) {
+      selectedPreset = 'AM';
+      startTime = '06:00';
+      endTime = '11:00';
+    } else if (worker.schedule != 'Unassigned') {
+      isCustom = true;
+      selectedPreset = 'Custom';
+    }
+
+    final startController = TextEditingController(text: startTime);
+    final endController = TextEditingController(text: endTime);
+    final daysController = TextEditingController(text: selectedDays);
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                const Icon(Icons.schedule_rounded, color: AppColors.accentBlue, size: 22),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Assign Shift: ${worker.fullName}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Choose a working shift for ${widget.area.name}. The worker will immediately receive an in-app notification on their phone.',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Shift Presets', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              setModalState(() {
+                                selectedPreset = 'AM';
+                                isCustom = false;
+                                startTime = '06:00';
+                                endTime = '11:00';
+                                selectedDays = 'Mon-Fri';
+                                startController.text = startTime;
+                                endController.text = endTime;
+                                daysController.text = selectedDays;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: selectedPreset == 'AM' ? AppColors.accentBlue.withValues(alpha: 0.1) : AppColors.surface,
+                                border: Border.all(
+                                  color: selectedPreset == 'AM' ? AppColors.accentBlue : AppColors.border,
+                                  width: selectedPreset == 'AM' ? 2 : 1,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(Icons.wb_sunny_outlined, size: 20, color: selectedPreset == 'AM' ? AppColors.accentBlue : AppColors.textMuted),
+                                  const SizedBox(height: 4),
+                                  const Text('Morning (AM)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 2),
+                                  const Text('06:00 - 11:00', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                  const Text('Mon - Fri', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              setModalState(() {
+                                selectedPreset = 'PM';
+                                isCustom = false;
+                                startTime = '13:00';
+                                endTime = '17:00';
+                                selectedDays = 'Mon-Fri';
+                                startController.text = startTime;
+                                endController.text = endTime;
+                                daysController.text = selectedDays;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: selectedPreset == 'PM' ? AppColors.accentBlue.withValues(alpha: 0.1) : AppColors.surface,
+                                border: Border.all(
+                                  color: selectedPreset == 'PM' ? AppColors.accentBlue : AppColors.border,
+                                  width: selectedPreset == 'PM' ? 2 : 1,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(Icons.wb_twilight_outlined, size: 20, color: selectedPreset == 'PM' ? AppColors.accentBlue : AppColors.textMuted),
+                                  const SizedBox(height: 4),
+                                  const Text('Afternoon (PM)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 2),
+                                  const Text('13:00 - 17:00', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                  const Text('Mon - Fri', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              setModalState(() {
+                                selectedPreset = 'Full';
+                                isCustom = false;
+                                startTime = '08:00';
+                                endTime = '17:00';
+                                selectedDays = 'Mon-Fri';
+                                startController.text = startTime;
+                                endController.text = endTime;
+                                daysController.text = selectedDays;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                              decoration: BoxDecoration(
+                                color: selectedPreset == 'Full' ? AppColors.accentBlue.withValues(alpha: 0.1) : AppColors.surface,
+                                border: Border.all(
+                                  color: selectedPreset == 'Full' ? AppColors.accentBlue : AppColors.border,
+                                  width: selectedPreset == 'Full' ? 2 : 1,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                children: [
+                                  Icon(Icons.apartment_outlined, size: 20, color: selectedPreset == 'Full' ? AppColors.accentBlue : AppColors.textMuted),
+                                  const SizedBox(height: 4),
+                                  const Text('Whole Day', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                  const SizedBox(height: 2),
+                                  const Text('08:00 - 17:00', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                  const Text('Mon - Fri', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      onTap: () {
+                        setModalState(() {
+                          isCustom = !isCustom;
+                          if (isCustom) selectedPreset = 'Custom';
+                        });
+                      },
+                      child: Row(
+                        children: [
+                          Icon(isCustom ? Icons.check_box_outlined : Icons.check_box_outline_blank, size: 18, color: AppColors.accentBlue),
+                          const SizedBox(width: 8),
+                          const Text('Custom Shift Hours & Days', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                    if (isCustom) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Start Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 4),
+                                TextField(controller: startController, decoration: const InputDecoration(hintText: '06:00', isDense: true)),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('End Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                const SizedBox(height: 4),
+                                TextField(controller: endController, decoration: const InputDecoration(hintText: '11:00', isDense: true)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text('Working Days', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      TextField(controller: daysController, decoration: const InputDecoration(hintText: 'Mon-Fri or Mon,Wed,Fri', isDense: true)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving ? null : () => Navigator.of(dialogCtx).pop(),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton.icon(
+                icon: isSaving ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.check, size: 16),
+                label: Text(isSaving ? 'Saving...' : 'Save Shift'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accentBlue,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: isSaving ? null : () async {
+                  setModalState(() => isSaving = true);
+                  final finalSt = startController.text.trim().isNotEmpty ? startController.text.trim() : '08:00';
+                  final finalEt = endController.text.trim().isNotEmpty ? endController.text.trim() : '17:00';
+                  final finalDays = daysController.text.trim().isNotEmpty ? daysController.text.trim() : 'Mon-Fri';
+
+                  final repo = ref.read(dataRepositoryProvider);
+                  await repo.updateWorkerSchedule(
+                    workerId: worker.userId,
+                    startTime: finalSt,
+                    endTime: finalEt,
+                    days: finalDays,
+                    areaName: widget.area.name,
+                  );
+
+                  ref.invalidate(employeesProvider);
+                  ref.invalidate(workAreasProvider);
+                  ref.invalidate(broadcastsProvider);
+                  if (context.mounted) {
+                    Navigator.of(dialogCtx).pop();
+                    ToastNotification.show(
+                      context,
+                      message: 'Shift for ${worker.fullName} set to $finalDays $finalSt - $finalEt. Worker notified!',
+                      type: ToastType.success,
+                    );
+                  }
+                  await _loadWorkers();
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   List<UserModel> _getFilteredAndSortedWorkers() {
     final query = _searchController.text.trim().toLowerCase();
 
@@ -216,8 +542,6 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
     final currentUser = ref.watch(currentUserProvider);
     final isAdmin = currentUser.role == UserRole.admin;
     final filteredWorkers = _getFilteredAndSortedWorkers();
-    final assignedCount = _workers.where((w) => w.assignedAreaId == widget.area.workareaId).length;
-    final unassignedCount = _workers.where((w) => w.assignedAreaId == null || w.assignedAreaId!.isEmpty).length;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -266,12 +590,6 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                             type: widget.area.status == 'Active' ? BadgeType.optimal : BadgeType.neutral,
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Supervisor: ${widget.area.supervisorName} • $assignedCount assigned to this sector • $unassignedCount unassigned in pool',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
@@ -503,11 +821,22 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                                               ),
                                           ],
                                         ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '${worker.contactNumber} • Shift: ${worker.schedule} • Credit: ${worker.creditScore}%',
-                                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                          overflow: TextOverflow.ellipsis,
+                                        const SizedBox(height: 4),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 4,
+                                          crossAxisAlignment: WrapCrossAlignment.center,
+                                          children: [
+                                            Text(
+                                              [
+                                                if (worker.contactNumber.isNotEmpty) worker.contactNumber,
+                                                'Credit: ${worker.creditScore}%',
+                                              ].join(' • '),
+                                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            _buildShiftBadge(worker.schedule),
+                                          ],
                                         ),
                                       ],
                                     ),
@@ -516,21 +845,38 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
 
                                   // Assignment Toggle Action (Admin authority)
                                   if (isAdmin)
-                                    AppButton(
-                                      label: isAssignedHere
-                                          ? 'Unassign'
-                                          : isUnassigned
-                                              ? '+ Assign'
-                                              : 'Reassign Here',
-                                      icon: isAssignedHere
-                                          ? Icons.person_remove_outlined
-                                          : Icons.person_add_alt_1_outlined,
-                                      variant: isAssignedHere
-                                          ? ButtonVariant.danger
-                                          : isUnassigned
-                                              ? ButtonVariant.primary
-                                              : ButtonVariant.outline,
-                                      onPressed: () => _toggleAssignment(worker),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        OutlinedButton.icon(
+                                          icon: const Icon(Icons.schedule_rounded, size: 14, color: AppColors.accentBlue),
+                                          label: const Text('Shift', style: TextStyle(fontSize: 12, color: AppColors.accentBlue, fontWeight: FontWeight.w600)),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                            side: const BorderSide(color: AppColors.border),
+                                            backgroundColor: Colors.white,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          ),
+                                          onPressed: () => _showEditShiftDialog(worker),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        AppButton(
+                                          label: isAssignedHere
+                                              ? 'Unassign'
+                                              : isUnassigned
+                                                  ? '+ Assign'
+                                                  : 'Reassign Here',
+                                          icon: isAssignedHere
+                                              ? Icons.person_remove_outlined
+                                              : Icons.person_add_alt_1_outlined,
+                                          variant: isAssignedHere
+                                              ? ButtonVariant.danger
+                                              : isUnassigned
+                                                  ? ButtonVariant.primary
+                                                  : ButtonVariant.outline,
+                                          onPressed: () => _toggleAssignment(worker),
+                                        ),
+                                      ],
                                     ),
                                 ],
                               ),
@@ -542,17 +888,8 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
 
             // Footer
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Expanded(
-                  child: Text(
-                    isAdmin
-                        ? 'Tip: Assigning or removing workers updates attendance tracking instantly.'
-                        : 'Viewing personnel roster assigned to this geofence.',
-                    style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-                  ),
-                ),
-                const SizedBox(width: 12),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primaryNavy,

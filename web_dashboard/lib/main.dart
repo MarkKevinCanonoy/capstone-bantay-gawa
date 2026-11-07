@@ -5,17 +5,17 @@ import 'core/constants/app_constants.dart';
 import 'core/theme/app_theme.dart';
 import 'app.dart';
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await Supabase.initialize(
       url: AppConstants.supabaseUrl,
-      // ignore: deprecated_member_use
       anonKey: AppConstants.supabaseAnonKey,
     );
   } catch (e) {
     debugPrint('Supabase initialization notice: $e');
   }
+
   runApp(
     const ProviderScope(
       child: BantayGawaWebDashboard(),

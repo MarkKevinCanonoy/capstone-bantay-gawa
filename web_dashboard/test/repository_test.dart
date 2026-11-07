@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_dashboard/data/models/user_model.dart';
 import 'package:web_dashboard/data/models/work_area_model.dart';
+import 'package:web_dashboard/data/models/attendance_model.dart';
+import 'package:web_dashboard/data/models/accomplishment_model.dart';
 import 'package:web_dashboard/data/repositories/mock_repository.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -9,7 +11,93 @@ void main() {
     late MockRepository repository;
 
     setUp(() {
-      repository = MockRepository();
+      repository = MockRepository(
+        initialWorkAreas: [
+          WorkAreaModel(
+            workareaId: 'area-1',
+            name: 'Ormoc City Hall Zone',
+            supervisorId: 'user-sup-1',
+            supervisorName: 'Juan Santos',
+            status: 'Active',
+            polygon: const [LatLng(11.005, 124.605), LatLng(11.006, 124.605), LatLng(11.006, 124.606)],
+          ),
+          WorkAreaModel(
+            workareaId: 'area-2',
+            name: 'Ormoc Public Market',
+            supervisorId: 'user-sup-2',
+            supervisorName: 'Maria Santos',
+            status: 'Active',
+            polygon: const [LatLng(11.008, 124.604), LatLng(11.009, 124.604), LatLng(11.009, 124.605)],
+          ),
+        ],
+        initialUsers: [
+          UserModel(
+            userId: 'user-sup-1',
+            username: 'juan.supervisor',
+            firstName: 'Juan',
+            lastName: 'Santos',
+            contactNumber: '+63 917 111 2222',
+            role: UserRole.supervisor,
+            status: 'active',
+            assignedAreaId: 'area-1',
+            assignedAreaName: 'Ormoc City Hall Zone',
+          ),
+          UserModel(
+            userId: 'user-w-1',
+            username: 'carlos.mendoza',
+            firstName: 'Carlos',
+            lastName: 'Mendoza',
+            contactNumber: '+63 917 333 4444',
+            role: UserRole.worker,
+            status: 'active',
+            assignedAreaId: 'area-1',
+            assignedAreaName: 'Ormoc City Hall Zone',
+          ),
+          UserModel(
+            userId: 'user-w-2',
+            username: 'elena.reyes',
+            firstName: 'Elena',
+            lastName: 'Reyes',
+            contactNumber: '+63 917 555 6666',
+            role: UserRole.worker,
+            status: 'active',
+            assignedAreaId: null,
+            assignedAreaName: null,
+          ),
+        ],
+        initialAttendanceLogs: [
+          AttendanceModel(
+            attendanceId: 'att-1',
+            userId: 'user-w-1',
+            workerName: 'Carlos Mendoza',
+            workerEmpId: 'BW-001',
+            workareaId: 'area-1',
+            areaName: 'Ormoc City Hall Zone',
+            timestamp: DateTime.now(),
+            gpsLat: 11.0055,
+            gpsLng: 124.6055,
+            timeIn: '07:00 AM',
+            isVerified: true,
+            faceMatch: true,
+          ),
+        ],
+        initialAccomplishments: [
+          AccomplishmentModel(
+            accomplishmentId: 'acc-1',
+            userId: 'user-w-1',
+            workerName: 'Carlos Mendoza',
+            workareaId: 'area-1',
+            areaName: 'Ormoc City Hall Zone',
+            imageUrl: 'https://example.com/photo.jpg',
+            capturedDate: '2026-09-08',
+            capturedTime: '10:30 AM',
+            capturedLat: 11.0054,
+            capturedLng: 124.6072,
+            message: 'Courtyard cleaned.',
+            status: 'pending',
+          ),
+        ],
+      );
     });
 
     test('Loads initial work areas successfully', () async {

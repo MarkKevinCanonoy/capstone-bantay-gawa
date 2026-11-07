@@ -11,15 +11,35 @@ import '../datasources/mock_data.dart';
 import 'data_repository.dart';
 
 class MockRepository implements DataRepository {
-  final List<WorkAreaModel> _workAreas = List.from(MockData.workAreas);
-  final List<UserModel> _users = List.from(MockData.users);
-  final List<AttendanceModel> _attendanceLogs = List.from(MockData.attendanceLogs);
-  final List<AccomplishmentModel> _accomplishments = List.from(MockData.accomplishments);
-  final List<LeaveRequestModel> _leaveRequests = List.from(MockData.leaveRequests);
-  final List<AlertModel> _alerts = List.from(MockData.alerts);
-  final List<BroadcastModel> _broadcasts = List.from(MockData.broadcasts);
-  final List<IncidentReportModel> _incidents = List.from(MockData.incidents);
-  final List<LocationTrackingModel> _locationTracking = List.from(MockData.locationTracking);
+  final List<WorkAreaModel> _workAreas;
+  final List<UserModel> _users;
+  final List<AttendanceModel> _attendanceLogs;
+  final List<AccomplishmentModel> _accomplishments;
+  final List<LeaveRequestModel> _leaveRequests;
+  final List<AlertModel> _alerts;
+  final List<BroadcastModel> _broadcasts;
+  final List<IncidentReportModel> _incidents;
+  final List<LocationTrackingModel> _locationTracking;
+
+  MockRepository({
+    List<WorkAreaModel>? initialWorkAreas,
+    List<UserModel>? initialUsers,
+    List<AttendanceModel>? initialAttendanceLogs,
+    List<AccomplishmentModel>? initialAccomplishments,
+    List<LeaveRequestModel>? initialLeaveRequests,
+    List<AlertModel>? initialAlerts,
+    List<BroadcastModel>? initialBroadcasts,
+    List<IncidentReportModel>? initialIncidents,
+    List<LocationTrackingModel>? initialLocationTracking,
+  })  : _workAreas = initialWorkAreas != null ? List.from(initialWorkAreas) : List.from(MockData.workAreas),
+        _users = initialUsers != null ? List.from(initialUsers) : List.from(MockData.users),
+        _attendanceLogs = initialAttendanceLogs != null ? List.from(initialAttendanceLogs) : List.from(MockData.attendanceLogs),
+        _accomplishments = initialAccomplishments != null ? List.from(initialAccomplishments) : List.from(MockData.accomplishments),
+        _leaveRequests = initialLeaveRequests != null ? List.from(initialLeaveRequests) : List.from(MockData.leaveRequests),
+        _alerts = initialAlerts != null ? List.from(initialAlerts) : List.from(MockData.alerts),
+        _broadcasts = initialBroadcasts != null ? List.from(initialBroadcasts) : List.from(MockData.broadcasts),
+        _incidents = initialIncidents != null ? List.from(initialIncidents) : List.from(MockData.incidents),
+        _locationTracking = initialLocationTracking != null ? List.from(initialLocationTracking) : List.from(MockData.locationTracking);
 
   int _countWorkersInArea(String areaId) {
     return _users.where((u) => u.role == UserRole.worker && u.assignedAreaId == areaId).length;
@@ -75,6 +95,14 @@ class MockRepository implements DataRepository {
   @override
   Future<void> addUser(UserModel user) async {
     _users.insert(0, user);
+  }
+
+  @override
+  Future<void> updateUserStatus(String userId, String status) async {
+    final idx = _users.indexWhere((u) => u.userId == userId);
+    if (idx != -1) {
+      _users[idx] = _users[idx].copyWith(status: status);
+    }
   }
 
   @override
@@ -139,6 +167,36 @@ class MockRepository implements DataRepository {
     }
   }
 
+  @override
+  Future<void> updateWorkerSchedule({
+    required String workerId,
+    required String startTime,
+    required String endTime,
+    required String days,
+    String? areaName,
+  }) async {
+    final idx = _users.indexWhere((u) => u.userId == workerId);
+    if (idx != -1) {
+      final formattedSchedule = '$days $startTime - $endTime';
+      _users[idx] = _users[idx].copyWith(schedule: formattedSchedule);
+
+      _broadcasts.insert(
+        0,
+        BroadcastModel(
+          notificationId: 'notif-sched-${DateTime.now().millisecondsSinceEpoch}',
+          senderId: 'user-admin-1',
+          receiverId: workerId,
+          recipients: _users[idx].fullName,
+          subject: 'Work Shift Schedule Update',
+          message: 'Nausab ang imong iskedyul sa trabaho: $formattedSchedule${areaName != null ? " sa $areaName" : ""}.',
+          isConfidential: false,
+          deliveredCount: 1,
+          sentAt: DateTime.now(),
+        ),
+      );
+    }
+  }
+
   // Attendance & Location Tracking (UC-08)
   @override
   Future<List<AttendanceModel>> getAttendanceLogs({String? areaId, String? workerId}) async {
@@ -150,6 +208,10 @@ class MockRepository implements DataRepository {
       list = list.where((a) => a.userId == workerId).toList();
     }
     return List.unmodifiable(list);
+  }
+
+  void addAttendance(AttendanceModel log) {
+    _attendanceLogs.insert(0, log);
   }
 
   @override
@@ -287,6 +349,13 @@ class MockRepository implements DataRepository {
         responseAction: 'warning_sent',
         responseNote: message,
       );
+
+      // Deduct 5 points in mock users
+      final userIdx = _users.indexWhere((u) => u.userId == workerId);
+      if (userIdx != -1) {
+        final u = _users[userIdx];
+        _users[userIdx] = u.copyWith(creditScore: (u.creditScore - 5).clamp(0, 100));
+      }
 
       // UC-09 Main Flow Step 5: Send warning notification to the worker and Supervisor
       final targetName = current.workerName ?? 'Worker';

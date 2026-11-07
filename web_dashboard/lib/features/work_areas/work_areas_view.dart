@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -13,6 +12,7 @@ import '../../core/widgets/toast_notification.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/work_area_model.dart';
 import '../../data/repositories/repository_provider.dart';
+import '../../core/utils/uuid_helper.dart';
 import 'widgets/area_workers_dialog.dart';
 
 class WorkAreasView extends ConsumerStatefulWidget {
@@ -48,22 +48,6 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
     );
   }
 
-  double _calculateAreaSqKm(List<LatLng> points) {
-    if (points.length < 3) return 0.0;
-    const double latKm = 110.574;
-    final double lonKm = 111.320 * math.cos(11.005 * math.pi / 180);
-    double area = 0.0;
-    for (int i = 0; i < points.length; i++) {
-      final j = (i + 1) % points.length;
-      final xi = points[i].longitude * lonKm;
-      final yi = points[i].latitude * latKm;
-      final xj = points[j].longitude * lonKm;
-      final yj = points[j].latitude * latKm;
-      area += (xi * yj) - (xj * yi);
-    }
-    return area.abs() / 2.0;
-  }
-
   void _startDrawingGeofence() {
     setState(() {
       _isDrawing = true;
@@ -89,17 +73,12 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
 
     final nameController = TextEditingController();
     final descController = TextEditingController();
-    final supervisors = await ref.read(dataRepositoryProvider).getUsers(role: UserRole.supervisor);
+    final supervisors = ref.read(supervisorsProvider).value ??
+        await ref.read(dataRepositoryProvider).getUsers(role: UserRole.supervisor);
+    String? supervisorId = supervisors.isNotEmpty ? supervisors.first.userId : null;
+    String supervisorName = supervisors.isNotEmpty ? supervisors.first.fullName : 'No supervisor';
+
     if (!mounted) return;
-
-    String? supervisorId;
-    String supervisorName = 'Unassigned';
-    if (supervisors.isNotEmpty) {
-      supervisorId = supervisors.first.userId;
-      supervisorName = supervisors.first.fullName;
-    }
-    final areaSqKm = _calculateAreaSqKm(_newPolygonPoints);
-
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -168,20 +147,10 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                             const Icon(Icons.check_circle_outline, size: 22, color: AppColors.successText),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Drawn Geofence: ${_newPolygonPoints.length} GPS Coordinates',
-                                    style: const TextStyle(fontSize: 13, color: AppColors.successText, fontWeight: FontWeight.w700),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Calculated Boundary Area: ${areaSqKm.toStringAsFixed(2)} km²',
-                                    style: const TextStyle(fontSize: 12, color: AppColors.successText),
-                                  ),
-                                ],
-                              ),
+                                child: Text(
+                                  'Drawn Geofence: ${_newPolygonPoints.length} GPS Coordinates',
+                                  style: const TextStyle(fontSize: 13, color: AppColors.successText, fontWeight: FontWeight.w700),
+                                ),
                             ),
                           ],
                         ),
@@ -222,7 +191,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                   children: [
                                     Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
                                     SizedBox(width: 10),
-                                    Text('Unassigned (No Supervisor)'),
+                                    Text('No supervisor (Unassigned)'),
                                   ],
                                 ),
                               ),
@@ -234,7 +203,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                         const SizedBox(width: 10),
                                         Flexible(
                                           child: Text(
-                                            s.fullName,
+                                            '${s.fullName} (${s.assignedAreaName ?? 'General'})',
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
@@ -245,12 +214,8 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                             onChanged: (val) {
                               setDialogState(() {
                                 supervisorId = val;
-                                if (val == null) {
-                                  supervisorName = 'Unassigned';
-                                } else {
-                                  final matched = supervisors.where((s) => s.userId == val);
-                                  supervisorName = matched.isNotEmpty ? matched.first.fullName : 'Unassigned';
-                                }
+                                final matched = supervisors.where((s) => s.userId == val);
+                                supervisorName = matched.isNotEmpty ? matched.first.fullName : 'No supervisor';
                               });
                             },
                           ),
@@ -295,14 +260,14 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                 return;
                               }
                               final newArea = WorkAreaModel(
-                                workareaId: '',
+                                workareaId: UuidHelper.generate(),
                                 name: nameController.text.trim(),
                                 description: descController.text.trim(),
                                 supervisorId: supervisorId,
                                 supervisorName: supervisorName,
                                 assignedCount: 0,
                                 status: 'Active',
-                                areaSqKm: '${areaSqKm.toStringAsFixed(2)} km²',
+                                areaSqKm: '',
                                 polygon: List.from(_newPolygonPoints),
                               );
                               await ref.read(dataRepositoryProvider).addWorkArea(newArea);
@@ -317,7 +282,10 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                 _newPolygonPoints.clear();
                                 _selectedArea = created;
                               });
-                              _mapController.move(created.center, 15.0);
+                              _mapController.move(newArea.center, 15.0);
+                              ref.invalidate(workAreasProvider);
+                              ref.invalidate(supervisorsProvider);
+                              ref.invalidate(employeesProvider);
                               if (dialogCtx.mounted) {
                                 Navigator.of(dialogCtx).pop();
                               }
@@ -342,16 +310,15 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
   void _showEditAreaDialog(WorkAreaModel area) async {
     final nameController = TextEditingController(text: area.name);
     final descController = TextEditingController(text: area.description ?? '');
-    final supervisors = await ref.read(dataRepositoryProvider).getUsers(role: UserRole.supervisor);
-    if (!mounted) return;
-
+    final supervisors = ref.read(supervisorsProvider).value ??
+        await ref.read(dataRepositoryProvider).getUsers(role: UserRole.supervisor);
     String? supervisorId = area.supervisorId;
-    if (supervisorId != null && !supervisors.any((s) => s.userId == supervisorId)) {
-      supervisorId = null;
-    }
-    String supervisorName = area.supervisorName;
+    String supervisorName = (area.supervisorId != null && area.supervisorName.isNotEmpty && area.supervisorName != 'Field Supervisor' && area.supervisorName != 'Unassigned')
+        ? area.supervisorName
+        : 'No supervisor';
     String status = area.status;
 
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -431,7 +398,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                         ),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<String?>(
-                            value: supervisorId,
+                            value: supervisors.any((s) => s.userId == supervisorId) ? supervisorId : null,
                             isExpanded: true,
                             icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
@@ -442,7 +409,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                   children: [
                                     Icon(Icons.person_outline, size: 16, color: AppColors.textMuted),
                                     SizedBox(width: 10),
-                                    Text('Unassigned (No Supervisor)'),
+                                    Text('No supervisor (Unassigned)'),
                                   ],
                                 ),
                               ),
@@ -454,7 +421,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                         const SizedBox(width: 10),
                                         Flexible(
                                           child: Text(
-                                            s.fullName,
+                                            '${s.fullName} (${s.assignedAreaName ?? 'General'})',
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
@@ -465,12 +432,8 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                             onChanged: (val) {
                               setDialogState(() {
                                 supervisorId = val;
-                                if (val == null) {
-                                  supervisorName = 'Unassigned';
-                                } else {
-                                  final matched = supervisors.where((s) => s.userId == val);
-                                  supervisorName = matched.isNotEmpty ? matched.first.fullName : 'Unassigned';
-                                }
+                                final matched = supervisors.where((s) => s.userId == val);
+                                supervisorName = matched.isNotEmpty ? matched.first.fullName : 'No supervisor';
                               });
                             },
                           ),
@@ -599,6 +562,9 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                   _newPolygonPoints.clear();
                                 });
                               }
+                              ref.invalidate(workAreasProvider);
+                              ref.invalidate(supervisorsProvider);
+                              ref.invalidate(employeesProvider);
                               if (dialogCtx.mounted) {
                                 Navigator.of(dialogCtx).pop();
                               }
@@ -618,6 +584,31 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
         );
       },
     );
+  }
+
+  Future<void> _toggleAreaStatus(WorkAreaModel area) async {
+    final nextStatus = area.status == 'Active' ? 'Inactive' : 'Active';
+    final updated = area.copyWith(status: nextStatus);
+    try {
+      await ref.read(dataRepositoryProvider).updateWorkArea(updated);
+      if (_selectedArea?.workareaId == area.workareaId) {
+        setState(() => _selectedArea = updated);
+      }
+      ref.invalidate(workAreasProvider);
+      ref.invalidate(supervisorsProvider);
+      ref.invalidate(employeesProvider);
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Work Area "${area.name}" is now $nextStatus.',
+          type: nextStatus == 'Active' ? ToastType.success : ToastType.info,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ToastNotification.show(context, message: 'Failed to update status: $e', type: ToastType.error);
+      }
+    }
   }
 
   void _confirmDeleteArea(WorkAreaModel area) {
@@ -869,7 +860,15 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
   Widget build(BuildContext context) {
     final currentUser = ref.watch(currentUserProvider);
     final workAreasAsync = ref.watch(workAreasProvider);
-    final workAreas = workAreasAsync.value ?? [];
+    ref.watch(supervisorsProvider);
+    final rawWorkAreas = workAreasAsync.value ?? [];
+    final workAreas = currentUser.role == UserRole.supervisor
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            a.workareaId == currentUser.assignedAreaId ||
+            a.name == currentUser.assignedAreaName).toList()
+        : rawWorkAreas;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1240,8 +1239,8 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
 
                           return AppCard(
                             padding: const EdgeInsets.all(16),
-                            backgroundColor: isSelected ? AppColors.navActiveBackground : AppColors.surface,
-                            border: isSelected ? Border.all(color: AppColors.accentBlue, width: 2) : null,
+                            backgroundColor: isSelected ? const Color(0xFFF0F7FF) : AppColors.surface,
+                            border: isSelected ? Border.all(color: AppColors.accentBlue, width: 2) : Border.all(color: AppColors.border),
                             onTap: () {
                               setState(() => _selectedArea = area);
                               _mapController.move(area.center, 15.0);
@@ -1253,38 +1252,85 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Expanded(
-                                      child: Text(
-                                        area.name,
-                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textPrimary),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.layers_outlined,
+                                            size: 16,
+                                            color: isSelected ? AppColors.accentBlue : AppColors.textSecondary,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              area.name,
+                                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.textPrimary),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    StatusBadge(
-                                      label: area.status,
-                                      type: area.status == 'Active' ? BadgeType.optimal : BadgeType.neutral,
+                                    const SizedBox(width: 8),
+                                    Tooltip(
+                                      message: currentUser.role == UserRole.admin
+                                          ? 'Click to toggle status'
+                                          : '',
+                                      child: InkWell(
+                                        onTap: currentUser.role == UserRole.admin
+                                            ? () => _toggleAreaStatus(area)
+                                            : null,
+                                        borderRadius: BorderRadius.circular(20),
+                                        child: StatusBadge(
+                                          label: area.status,
+                                          type: area.status == 'Active' ? BadgeType.optimal : BadgeType.neutral,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.admin_panel_settings_outlined, size: 14, color: AppColors.textMuted),
+                                    const SizedBox(width: 5),
+                                    Expanded(
+                                      child: Text(
+                                        (area.supervisorId != null && area.supervisorName.isNotEmpty && area.supervisorName != 'No supervisor' && area.supervisorName != 'Field Supervisor' && area.supervisorName != 'Unassigned')
+                                            ? area.supervisorName
+                                            : 'No supervisor assigned',
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.textSecondary),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   ],
                                 ),
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    const Icon(Icons.person_outline, size: 14, color: AppColors.textMuted),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        'Sup: ${area.supervisorName}',
-                                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.surfaceSubtle,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: AppColors.border),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.groups_outlined, size: 13, color: AppColors.textSecondary),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            '${area.assignedCount} Workers',
+                                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
-                                    const Icon(Icons.groups_outlined, size: 14, color: AppColors.textMuted),
-                                    const SizedBox(width: 4),
-                                    Text('${area.assignedCount} Workers', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
                                   ],
                                 ),
-                                if (area.description != null) ...[
-                                  const SizedBox(height: 6),
+                                if (area.description != null && area.description!.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
                                   Text(area.description!, style: const TextStyle(fontSize: 11, color: AppColors.textMuted), maxLines: 2, overflow: TextOverflow.ellipsis),
                                 ],
                                 if (currentUser.role == UserRole.admin) ...[

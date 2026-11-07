@@ -43,6 +43,7 @@ class AppTheme {
         ),
         bodySmall: baseTextTheme.bodySmall?.copyWith(
           color: AppColors.textMuted,
+          fontWeight: FontWeight.w500,
         ),
       ),
       cardTheme: CardThemeData(

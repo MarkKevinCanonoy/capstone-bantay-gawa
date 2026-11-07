@@ -1,0 +1,48 @@
+name: mobile_app
+description: "BantayGawa Field Worker Mobile Application"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI & Design System
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^3.4.3
+  google_fonts: ^8.2.1
+  intl: ^0.20.3
+
+  # Hardware: GIS & Maps
+  flutter_map: ^8.3.2
+  latlong2: ^0.10.1
+  geolocator: ^14.1.2
+
+  # Hardware: Camera & Image Processing
+  camera: ^0.12.1
+  image: ^4.3.0
+
+  sqflite: ^2.4.4+2
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  flutter_secure_storage: ^11.2.0
+  connectivity_plus: ^6.1.0
+
+  # Backend Integration
+  supabase_flutter: ^2.8.0
+  file_picker: ^13.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/
+    - assets/images/

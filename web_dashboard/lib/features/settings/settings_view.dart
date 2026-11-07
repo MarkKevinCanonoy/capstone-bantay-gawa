@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/status_badge.dart';
@@ -14,15 +16,62 @@ class SettingsView extends ConsumerStatefulWidget {
 }
 
 class _SettingsViewState extends ConsumerState<SettingsView> {
-  final _supabaseUrlController = TextEditingController(text: 'https://xyzcompany.supabase.co');
-  final _supabaseKeyController = TextEditingController(text: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...');
-  bool _useLiveSupabase = false;
+  final _supabaseUrlController = TextEditingController(text: AppConstants.supabaseUrl);
+  final _supabaseKeyController = TextEditingController(text: AppConstants.supabaseAnonKey);
+  bool _isConnected = true;
+  bool _isTesting = false;
+  int? _pingLatencyMs;
+
+  @override
+  void initState() {
+    super.initState();
+    _testLiveConnection(silent: true);
+  }
 
   @override
   void dispose() {
     _supabaseUrlController.dispose();
     _supabaseKeyController.dispose();
     super.dispose();
+  }
+
+  Future<void> _testLiveConnection({bool silent = false}) async {
+    setState(() => _isTesting = true);
+    final stopwatch = Stopwatch()..start();
+    try {
+      await Supabase.instance.client.from('roles').select('role_id').limit(1);
+      stopwatch.stop();
+      if (mounted) {
+        setState(() {
+          _isConnected = true;
+          _pingLatencyMs = stopwatch.elapsedMilliseconds;
+          _isTesting = false;
+        });
+        if (!silent) {
+          ToastNotification.show(
+            context,
+            message: 'Supabase connected successfully in ${_pingLatencyMs}ms. PostgreSQL tables verified.',
+            type: ToastType.success,
+          );
+        }
+      }
+    } catch (e) {
+      stopwatch.stop();
+      if (mounted) {
+        setState(() {
+          _isConnected = false;
+          _pingLatencyMs = null;
+          _isTesting = false;
+        });
+        if (!silent) {
+          ToastNotification.show(
+            context,
+            message: 'Database ping failed: $e',
+            type: ToastType.error,
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -65,14 +114,14 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                       ],
                     ),
                     StatusBadge(
-                      label: _useLiveSupabase ? 'LIVE SUPABASE CONNECTED' : 'MOCK REPOSITORY ACTIVE',
-                      type: _useLiveSupabase ? BadgeType.success : BadgeType.optimal,
+                      label: _isConnected ? 'LIVE SUPABASE CONNECTED' : 'DATABASE DISCONNECTED',
+                      type: _isConnected ? BadgeType.success : BadgeType.danger,
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'The web dashboard employs a decoupled Repository Pattern. While preparing your production Supabase database instance, all views, approvals, geofencing, and reports run interactively in Mock Mode. When your credentials are ready, enter them below to transition smoothly.',
+                  'The web dashboard connects directly to the production Supabase cloud database instance. All views, approvals, geofencing, and reports run dynamically against live PostgreSQL tables per specs/schema.sql.',
                   style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
                 ),
                 const SizedBox(height: 20),
@@ -81,6 +130,7 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const SizedBox(height: 6),
                 TextField(
                   controller: _supabaseUrlController,
+                  readOnly: true,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.link_rounded, size: 18, color: AppColors.textMuted),
                     hintText: 'https://[project-ref].supabase.co',
@@ -98,6 +148,8 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 const SizedBox(height: 6),
                 TextField(
                   controller: _supabaseKeyController,
+                  readOnly: true,
+                  obscureText: true,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.key_outlined, size: 18, color: AppColors.textMuted),
                     hintText: 'anon public key token...',
@@ -111,32 +163,42 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 ),
                 const SizedBox(height: 20),
 
-                // Side-by-Side Action Buttons
+                // Latency and Ping Test Action
                 Row(
                   children: [
                     AppButton(
-                      label: 'Save & Test Connection',
+                      label: _isTesting ? 'Pinging Database...' : 'Test Live Connection',
                       icon: Icons.sync,
                       variant: ButtonVariant.primary,
-                      onPressed: () {
-                        setState(() => _useLiveSupabase = true);
-                        ToastNotification.show(
-                          context,
-                          message: 'Supabase credentials stored in configuration. Tables strictly aligned with specs/schema.sql.',
-                          type: ToastType.success,
-                        );
-                      },
+                      isLoading: _isTesting,
+                      onPressed: () => _testLiveConnection(silent: false),
                     ),
-                    const SizedBox(width: 12),
-                    AppButton(
-                      label: 'Revert to Mock Mode',
-                      variant: ButtonVariant.outline,
-                      icon: Icons.restart_alt_rounded,
-                      onPressed: () {
-                        setState(() => _useLiveSupabase = false);
-                        ToastNotification.show(context, message: 'Reverted to in-memory mock repository.', type: ToastType.info);
-                      },
-                    ),
+                    if (_pingLatencyMs != null) ...[
+                      const SizedBox(width: 14),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.successBg,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.accentEmerald.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.speed_rounded, size: 16, color: AppColors.accentEmerald),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Roundtrip Latency: ${_pingLatencyMs}ms',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.successText,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ],
@@ -245,9 +307,9 @@ class _SettingsViewState extends ConsumerState<SettingsView> {
                 ),
                 const Divider(height: 24, color: AppColors.border),
                 _buildParameterRow(
-                  label: 'Worker Performance Credit Baseline',
-                  value: '100 Points',
-                  description: 'Standard starting balance. Deductions apply on unexcused absences; additions on verified proofs.',
+                  label: 'Workforce Compliance Baseline',
+                  value: 'Good Standing',
+                  description: 'Standard starting status. Disciplinary reviews trigger on repeated geofence and absence breaches.',
                 ),
               ],
             ),

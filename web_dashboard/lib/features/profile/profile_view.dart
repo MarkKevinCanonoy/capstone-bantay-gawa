@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/app_button.dart';
-import '../../core/widgets/qr_code_widget.dart';
 import '../../core/widgets/toast_notification.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
@@ -144,7 +144,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                         label: 'Save Changes',
                         icon: Icons.check,
                         variant: ButtonVariant.primary,
-                        onPressed: () {
+                        onPressed: () async {
                           if (firstNameController.text.trim().isEmpty || lastNameController.text.trim().isEmpty) {
                             ToastNotification.show(context, message: 'Please enter both first and last name.', type: ToastType.warning);
                             return;
@@ -155,10 +155,27 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                             lastName: lastNameController.text.trim(),
                             contactNumber: contactController.text.trim(),
                           );
-                          ref.read(currentUserProvider.notifier).state = updated;
 
-                          Navigator.of(dialogCtx).pop();
-                          ToastNotification.show(context, message: 'Profile details successfully updated.', type: ToastType.success);
+                          try {
+                            if (user.userId.isNotEmpty && !user.userId.startsWith('11111111')) {
+                              await Supabase.instance.client.from('users').update({
+                                'first_name': firstNameController.text.trim(),
+                                'last_name': lastNameController.text.trim(),
+                                'contact_number': contactController.text.trim(),
+                                'updated_at': DateTime.now().toIso8601String(),
+                              }).eq('user_id', user.userId);
+                              ref.invalidate(employeesProvider);
+                            }
+                            ref.read(currentUserProvider.notifier).state = updated;
+                            if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+                            if (mounted) {
+                              ToastNotification.show(context, message: 'Profile details successfully updated.', type: ToastType.success);
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ToastNotification.show(context, message: 'Failed to update profile: $e', type: ToastType.error);
+                            }
+                          }
                         },
                       ),
                     ],
@@ -172,113 +189,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
     );
   }
 
-  // Dialog: View QR Code Credential
-  void _showQrCodeDialog(UserModel user) {
-    final qrData = user.qrToken ?? 'BW-ORMC-${user.userId}';
 
-    showDialog(
-      context: context,
-      builder: (dialogCtx) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          backgroundColor: AppColors.surface,
-          child: Container(
-            width: 480,
-            padding: const EdgeInsets.all(24),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Official QR Credential Token',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
-                        onPressed: () => Navigator.of(dialogCtx).pop(),
-                      ),
-                    ],
-                  ),
-                  const Divider(height: 16, color: AppColors.border),
-                  const SizedBox(height: 16),
-
-                  // QR Code Container
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.border),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.04),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: QrCodeWidget(
-                      data: qrData,
-                      size: 160,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    user.fullName,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${user.roleDisplayName} • $qrData',
-                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppColors.textMuted),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: AppColors.surfaceSubtle,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Text(
-                      'Scan this official QR credential using the BantayGawa mobile app to authenticate on field devices.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Side-by-Side Action Buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      AppButton(
-                        label: 'Close',
-                        variant: ButtonVariant.outline,
-                        onPressed: () => Navigator.of(dialogCtx).pop(),
-                      ),
-                      AppButton(
-                        label: 'Print QR Credential',
-                        icon: Icons.print_outlined,
-                        variant: ButtonVariant.primary,
-                        onPressed: () {
-                          Navigator.of(dialogCtx).pop();
-                          ToastNotification.show(context, message: 'Official credential card sent to print queue.', type: ToastType.success);
-                        },
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   // Dialog: Change Password
   void _showChangePasswordDialog() {
@@ -389,7 +300,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                         label: 'Update Password',
                         icon: Icons.check,
                         variant: ButtonVariant.primary,
-                        onPressed: () {
+                        onPressed: () async {
                           if (currentPassController.text.isEmpty || newPassController.text.isEmpty) {
                             ToastNotification.show(context, message: 'Please complete all password fields.', type: ToastType.warning);
                             return;
@@ -403,8 +314,19 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                             return;
                           }
 
-                          Navigator.of(dialogCtx).pop();
-                          ToastNotification.show(context, message: 'Password successfully updated. Secure cryptographic hash stored.', type: ToastType.success);
+                          try {
+                            await Supabase.instance.client.auth.updateUser(
+                              UserAttributes(password: newPassController.text),
+                            );
+                            if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
+                            if (mounted) {
+                              ToastNotification.show(context, message: 'Password successfully updated in Supabase auth.', type: ToastType.success);
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ToastNotification.show(context, message: 'Password update failed: $e', type: ToastType.error);
+                            }
+                          }
                         },
                       ),
                     ],
@@ -452,29 +374,35 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                 variant: ButtonVariant.outline,
                 onPressed: () {
                   if (user.role == UserRole.admin) {
-                    ref.read(currentUserProvider.notifier).state = UserModel(
-                      userId: '22222222-2222-2222-2222-222222222222',
-                      username: 'sup_juan',
-                      firstName: 'Juan',
-                      lastName: 'Santos',
-                      contactNumber: '+63 917 222 0002',
-                      role: UserRole.supervisor,
-                      status: 'active',
-                      assignedAreaId: null,
-                      assignedAreaName: null,
-                    );
+                    final employees = ref.read(employeesProvider).value ?? [];
+                    final supervisors = employees.where((u) => u.role == UserRole.supervisor).toList();
+                    if (supervisors.isNotEmpty) {
+                      ref.read(currentUserProvider.notifier).state = supervisors.first;
+                      ToastNotification.show(context, message: 'Switched to Supervisor: ${supervisors.first.fullName}', type: ToastType.info);
+                    } else {
+                      ToastNotification.show(context, message: 'No registered supervisor found in database.', type: ToastType.warning);
+                    }
                   } else {
-                    ref.read(currentUserProvider.notifier).state = UserModel(
-                      userId: '11111111-1111-1111-1111-111111111111',
-                      username: 'admin_enro',
-                      firstName: 'Roberto',
-                      lastName: 'Del Rosario',
-                      contactNumber: '+63 917 111 0001',
-                      role: UserRole.admin,
-                      status: 'active',
-                    );
+                    final employees = ref.read(employeesProvider).value ?? [];
+                    final admins = employees.where((u) => u.role == UserRole.admin).toList();
+                    if (admins.isNotEmpty) {
+                      ref.read(currentUserProvider.notifier).state = admins.first;
+                      ToastNotification.show(context, message: 'Switched to Administrator view (${admins.first.fullName})', type: ToastType.info);
+                    } else {
+                      final supaUser = Supabase.instance.client.auth.currentUser;
+                      ref.read(currentUserProvider.notifier).state = UserModel(
+                        userId: supaUser?.id ?? '',
+                        username: supaUser?.email ?? 'admin',
+                        firstName: supaUser?.userMetadata?['first_name']?.toString() ?? 'Administrator',
+                        lastName: supaUser?.userMetadata?['last_name']?.toString() ?? '',
+                        contactNumber: supaUser?.phone ?? '',
+                        role: UserRole.admin,
+                        status: 'active',
+                        schedule: 'Unassigned',
+                      );
+                      ToastNotification.show(context, message: 'Switched to Administrator view', type: ToastType.info);
+                    }
                   }
-                  ToastNotification.show(context, message: 'Switched active viewing role perspective.', type: ToastType.info);
                 },
               ),
             ],
@@ -602,32 +530,54 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    Builder(
+                      builder: (context) {
+                        final hasFace = user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty;
+                        return Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text('Facial Recognition Vector', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-                            SizedBox(height: 2),
-                            Text('MobileFaceNet 128-d Biometric Template', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Facial Recognition', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  hasFace ? 'Face Biometrics Enrolled' : 'Face Biometrics Not Enrolled',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: hasFace ? AppColors.successBg : AppColors.surfaceSubtle,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: hasFace ? AppColors.accentEmerald.withValues(alpha: 0.3) : AppColors.border,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    hasFace ? Icons.check_circle : Icons.pending_outlined,
+                                    size: 14,
+                                    color: hasFace ? AppColors.successText : AppColors.textMuted,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    hasFace ? 'ENROLLED' : 'PENDING',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: hasFace ? AppColors.successText : AppColors.textMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.successBg,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.check_circle, size: 14, color: AppColors.successText),
-                              SizedBox(width: 4),
-                              Text('ENROLLED', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.successText)),
-                            ],
-                          ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
                     const Divider(height: 18, color: AppColors.border),
                     Row(
@@ -636,21 +586,41 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('QR Login Credential', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                            const Text('Face Biometrics Status', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
                             const SizedBox(height: 2),
-                            Text(user.qrToken ?? 'BW-ORMC-${user.userId}', style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppColors.textMuted)),
+                            Text(
+                              user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty
+                                  ? 'Active 512-d MobileFaceNet vector enrolled'
+                                  : 'No facial embedding enrolled',
+                              style: const TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppColors.textMuted),
+                            ),
                           ],
                         ),
-                        OutlinedButton.icon(
-                          icon: const Icon(Icons.qr_code_2, size: 16),
-                          label: const Text('View QR'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primaryNavy,
-                            side: const BorderSide(color: AppColors.border),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: (user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty)
+                                ? AppColors.successBg
+                                : AppColors.surfaceSubtle,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: (user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty)
+                                  ? AppColors.accentEmerald.withValues(alpha: 0.3)
+                                  : AppColors.border,
+                            ),
                           ),
-                          onPressed: () => _showQrCodeDialog(user),
+                          child: Text(
+                            (user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty)
+                                ? 'ACTIVE'
+                                : 'PENDING',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: (user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty)
+                                  ? AppColors.successText
+                                  : AppColors.textMuted,
+                            ),
+                          ),
                         ),
                       ],
                     ),

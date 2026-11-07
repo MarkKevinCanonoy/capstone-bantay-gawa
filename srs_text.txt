@@ -1,0 +1,5308 @@
+Republic of the Philippines
+EASTERN VISAYAS STATE UNIVERSITY
+ORMOC CAMPUS
+Ormoc City​
+
+SOFTWARE REQUIREMENTS SPECIFICATION
+BantayGawaMobile: Smart Mobile Workforce Attendance Verification System
+with Geofencing, Real-Time Facial Recognition, and Workforce Analytics
+
+Prepared by:
+LCB Tech
+
+Baladjay, Menard M.​
+Canonoy, Mark Kevin D.​
+Lozabe, Ace L.
+
+Adviser:
+Engr. Joseph Jaymel S. Morpos
+Date: July 2026
+
+Table of Contents
+1. INTRODUCTION................................................................................................................ 5
+1.1. Purpose.......................................................................................................................... 5
+1.2. Scope............................................................................................................................. 5
+1.3. Definitions, Acronyms, and Abbreviations...................................................................6
+1.4. Document Overview..................................................................................................... 7
+1.5. Sustainable and Development Goals (SDGs) Alignment............................................. 7
+1.6. Gender and Development (GAD) Compliance............................................................. 7
+2. OVERALL DESCRIPTION............................................................................................... 8
+2.1. Product Perspective....................................................................................................... 8
+2.2. Product Features............................................................................................................ 8
+2.3. User Classes and Characteristics...................................................................................9
+2.4. Operating Environment............................................................................................... 10
+2.5. Design Constraints...................................................................................................... 10
+2.6. Assumptions................................................................................................................ 11
+2.7. Dependencies.............................................................................................................. 12
+3. USE CASE DEVELOPMENT.......................................................................................... 13
+3.1. UC-01 - Create User Account..................................................................................... 13
+3.2. UC-02 - Manage Work Areas and Geofences............................................................. 13
+3.3. UC-03 - Approve or Deny Leave Request.................................................................. 14
+3.4. UC-04 - Review and Approve Accomplishment Proof.............................................. 15
+3.5. UC-05 - Generate Reports...........................................................................................16
+3.6. UC-06 - Send Notification.......................................................................................... 16
+3.7. UC-07 - Shuffle Worker Assignments........................................................................ 17
+3.8. UC-08 - View GIS Workforce Map.............................................................................17
+3.9. UC-09 - View and Respond to Alerts..........................................................................18
+3.10. UC-10 - Monitor Assigned Workers (Field Supervisor)........................................... 18
+3.11. UC-11 - Report Worker Issue.................................................................................... 19
+3.12. UC-12 - Generate Reports (Supervisor)....................................................................19
+3.13. UC-13 - View Leave Requests (Supervisor)............................................................. 20
+3.14. UC-14 - First-Time Login via QR Code................................................................... 20
+3.15. UC-15 - Log Attendance........................................................................................... 21
+3.16. UC-16 - Submit Accomplishment Proof................................................................... 22
+3.17. UC-17 - Request Leave............................................................................................. 23
+3.18. UC-18 - View Performance Credits.......................................................................... 23
+3.19. UC-19 - Offline Attendance Capture........................................................................ 24
+3.20. UC-20 - Offline Attendance Capture........................................................................ 24
+3.21. UC-21 - Auto-Sync Offline Data.............................................................................. 25
+3.22. UC-22 - Auto-Sync Offline Data.............................................................................. 25
+4. USER STORIES................................................................................................................. 27
+
+4.1. US-01 - Field Worker Registration............................................................................. 27
+4.2. US-02 - Register Field Worker’s Face........................................................................ 27
+4.3. US-03 - User Field Assignment.................................................................................. 27
+4.4. US-04 - Work Area Creation.......................................................................................27
+4.5. US-05 - Update Work Area......................................................................................... 28
+4.6. US-06 - Filtered List of Workers.................................................................................28
+4.7. US-07 - View Worker Profile...................................................................................... 28
+4.8. US-08 - Leave Request Approval............................................................................... 28
+4.9. US-09 - Validation of Accomplishment Reports.........................................................28
+4.10. US-10 - Report Generation....................................................................................... 29
+4.11. US-11 - Report Export...............................................................................................29
+4.12. US-12 - Notification and Announcement Management............................................29
+4.13. US-13 - Private Notifications.................................................................................... 29
+4.14. US-14 - Consecutive Absence Alerts........................................................................30
+4.15. US-15 - Field Supervisor Dashboard........................................................................ 30
+4.16. US-16 - View Attendance Summary......................................................................... 30
+4.17. US-17 - Accomplishment Validation in Assigned Area............................................30
+4.18. US-18 - View Leave Requests in Assigned Area......................................................31
+4.19. US-19 - Report Worker Issues...................................................................................31
+4.20. US-20 - Report Generation on Assigned Area..........................................................31
+4.21. US-21 - Report Export on Assigned Area.................................................................31
+4.22. US-22 - Leave Request Notification......................................................................... 32
+4.23. US-23 - Persistent Login........................................................................................... 32
+4.23. US-23 - Automatic Image Metadata Embedding...................................................... 32
+4.24. US-24 - Submit Accomplishment Report................................................................. 32
+4.25. US-25 - Submit Additional Accomplishment Report............................................... 33
+4.26. US-26 - Leave Request............................................................................................. 33
+4.27. US-27 - Offline Mode............................................................................................... 33
+4.28. US-28 - Automatic Data Synchronization................................................................ 33
+4.29. US-29 - Camera Selection for Proof Images.............................................................34
+4.30. US-30 - Simple and Intuitive User Interface.............................................................34
+5. FUNCTIONAL REQUIREMENTS................................................................................. 35
+5.1. Functional Requirements Table...................................................................................35
+6. NON-FUNCTIONAL REQUIREMENTS....................................................................... 38
+6.1. Non-Functional Requirements Table...........................................................................38
+7. SYSTEM ARCHITECTURE............................................................................................43
+7.1. System Architecture.................................................................................................... 43
+7.2. Technology Stack........................................................................................................ 43
+7.3. System Architecture Diagram..................................................................................... 44
+7.4. Deployment Diagram.................................................................................................. 45
+8. Interface Requirements..................................................................................................... 46
+
+8.1 User Interface Requirements........................................................................................ 46
+8.2. Software Interface Requirements................................................................................ 47
+8.3 Hardware Interface Requirements................................................................................47
+8.4. External Interface Requirements................................................................................. 48
+8.5. API Integration............................................................................................................ 48
+9. Data Requirements.............................................................................................................49
+9.1 Database Overview...................................................................................................... 49
+9.2 Entities and Attributes.................................................................................................. 51
+9.3 Relationship Between Entities..................................................................................... 58
+9.4 Database Normalization............................................................................................... 63
+9.5 Data Dictionary............................................................................................................ 64
+9.6 Data Integrity Rules..................................................................................................... 75
+9.7 Backup and Recovery Strategy.................................................................................... 75
+10. Testing Strategy................................................................................................................ 76
+10.1 Testing Overview....................................................................................................... 76
+11. Acceptance Criteria..........................................................................................................79
+REFERENCES....................................................................................................................... 83
+APPENDICES........................................................................................................................ 84
+Appendices A - Use Case Diagram....................................................................................84
+Appendices B - System Architecture Diagram.................................................................. 85
+
+1. INTRODUCTION
+1.1. Purpose
+This Software Requirements Specification (SRS) document specifically describes the
+BantayGawaMobile system - an intelligent mobile workforce attendance verification system
+that serves the users from the Environment and Natural Resources Office (ENRO) of Ormoc
+City City Hall by addressing the problem of time theft and unverified work done among field
+workers through location based attendance validation using geofencing with real-time facial
+recognition.
+
+1.2. Scope
+BantayGawaMobile is a mobile-first workforce management platform for LGU field workers
+that only allows them to log attendance if they are physically within the work zones. The
+system covers:
+●​ User Authentication: Multi-factor authentication with QR Code first-time login,
+session storage, face recognition.
+●​ Role-Based Access Control: 3 distinct roles with role-specific permissions
+●​ Geofence Management: Circular, Polygon geofences.
+●​ Attendance Management: Time-in, Break-in, Break-out, Time-out with face, geofence
+validation.
+●​ Field Accomplishment Reporting: Work completion proof submission with geotagged
+images.
+●​ Leave Request Management: Submit, view, approve/deny leave requests
+●​ Performance Credit System: Star-based worker performance with automated alerts.
+●​ GIS Workforce Map: Real-time worker locator, Work zone status.
+●​ Offline Capability: Attendance, proof capture without internet with auto-sync
+●​ Notification System: In-app messages for announcements, alerts, updates.
+●​ Report Generation: Daily, weekly, monthly report PDF/Excel export.
+The system is built using Flutter, Supabase with PostGIS, MobileFaceNet with CNN
+antispoofing, flutter_map with OpenStreetMap, Firebase Cloud Messaging, hosted on Vercel.
+System does not integrate with existing LGU payroll & HR as per current scope.
+
+1.3. Definitions, Acronyms, and Abbreviations
+Term
+Admin
+Field Supervisor
+
+Field Worker
+Geofence
+Geofencing
+
+Facial Recognition
+
+Liveness Detection
+
+Accomplishment Report
+QR Code
+GIS
+
+Definition
+The overall system administrator with full access to all features
+An officer assigned to specific work areas who monitors field
+workers
+The frontline worker (e.g., street sweeper) who logs attendance and
+submits proofs
+A virtual geographic boundary created using GPS coordinates
+Technology that triggers actions when a device enters or exits a
+defined geographic area
+Biometric technology that verifies identity by comparing facial
+features
+Technology that ensures the face being scanned is from a live
+person, not a photo/video
+Proof of work completed, consisting of an image with embedded
+metadata
+Quick Response code used for first-time worker login
+Geographic Information System – used for mapping worker
+locations and work zones
+
+LGU
+
+Local Government Unit
+
+ENRO
+
+Environment and Natural Resources Office
+
+MFA
+
+Multi-Factor Authentication
+
+JWT
+
+JSON Web Token – used for API authentication
+
+FCM
+
+Firebase Cloud Messaging – used for push notifications
+
+PostGIS
+
+Spatial database extender for PostgreSQL
+
+SQLite
+
+Local database for offline storage on mobile devices
+
+TFLite
+
+TensorFlow Lite – for on-device facial recognition inference
+
+API
+
+Application Programming Interface
+
+REST
+
+Representational State Transfer – API architecture style
+
+CRUD
+
+Create, Read, Update, Delete
+
+SRS
+
+Software Requirements Specification
+
+1.4. Document Overview
+This SRS document is organized into the following sections:
+1.​ Introduction
+
+7.​ System Architecture
+
+2.​ Overall Description
+
+8.​ Interface Requirements
+
+3.​ Use Case Scenarios
+
+9.​ Data Requirements
+
+4.​ User Stories
+
+10.​Testing Strategy
+
+5.​ Functional Requirements
+
+11.​Acceptance Criteria
+
+6.​ Non-Functional Requirements
+
+1.5. Sustainable and Development Goals (SDGs) Alignment
+This capstone project supports SDG 8: Decent Work and Economic Growth, by
+ensuring fair and accurate tracking of worker attendance and productivity, preventing time
+theft and ensuring workers are compensated for actual hours worked. It promotes
+accountability and transparency in public sector employment. SDG 9: Industry, Innovation,
+Infrastructure, by making use of innovative technologies (geofencing, facial recognition, GIS
+mapping) to modernize LGU workforce management. SDG 11: Sustainable Cities and
+Communities, by ensuring street sweepers and field workers are properly monitored and their
+work verified. SDG 16: Peace, Justice and Strong Institutions, as the system promotes
+transparency and accountability in LGU operations, reducing corruption opportunities (time
+theft, falsified attendance).
+
+1.6. Gender and Development (GAD) Compliance
+The system promotes inclusive access for all worker and official personnel regardless of
+gender, age, ability, or background. The system and its design shall ensure fairness, equality,
+and usability for everyone.
+
+2. OVERALL DESCRIPTION
+2.1. Product Perspective
+BantayGawaMobile is a standalone system that operates independently. The system consists
+of:
+1.​ Mobile Application (Flutter): For Field Workers (primary) and Field Supervisors
+(limited access)
+2.​ Web Dashboard (Flutter Web): For Admin and Field Supervisor full management
+access
+3.​ Backend Services: Supabase (authentication, database, real-time) + PostGIS (spatial
+data)
+4.​ Facial Recognition Engine: MobileFaceNet + CNN Anti-Spoofing (on-device,
+offline)
+5.​ GIS/Mapping Service: flutter_map + OpenStreetMap
+6.​ Notification Service: Firebase Cloud Messaging (in-app push notifications)
+7.​ Local Storage: SQLite (offline data caching and sync)
+
+2.2. Product Features
+Feature
+
+Workforce Profile Management
+
+Geofencing-Based Attendance
+
+Real-Time Facial Recognition
+
+Mobile Attendance
+
+Description
+
+Maintain employee info, assigned work zones, shift
+schedules, and supervisor assignments
+Employees check in/out only when inside authorized work
+areas; prevents remote check-ins
+Verifies correct employee is checking in; prevents proxy
+attendance
+Supports Time-in, Break-in, Break-out, Time-out with GPS,
+timestamp, and face verification
+
+Daily Field Accomplishment
+
+Employees submit completed tasks with geotagged images
+
+Reporting
+
+(metadata + visual overlay)
+
+Supervisor Validation
+
+Approve attendance, review accomplishments, record
+observations, add remarks
+
+Workforce Analytics
+
+Display attendance rates, late arrivals, absenteeism, field
+
+Dashboard
+
+productivity, average working hours
+
+GIS Workforce Map
+
+Notification Module
+
+Executive Dashboard
+Role-Based Access Control
+
+Show employee locations, assigned work zones, attendance
+status, completed assignments
+Notify employees about work assignments, schedule
+changes, attendance reminders, supervisor feedback
+Display active field workers, attendance trends, productivity
+reports, delayed reports
+Supports Employee, Supervisor, Admin roles
+Attendance and proof capture without internet; auto-sync
+
+Offline Mode
+
+when online
+
+QR Code First-Time Login
+
+Performance Credit System
+
+Leave Management
+Report Generation
+
+Workers scan QR code on ID card for seamless first-time
+authentication
+Star-based worker performance tracking with automated
+alerts
+Submit, view, approve/deny leave requests with optional
+proof images
+Daily, weekly, monthly reports with PDF/Excel export
+
+2.3. User Classes and Characteristics
+
+User Role
+
+Description
+
+Technical
+
+Skill Level Platform
+
+Top-level system administrator. Manages
+Admin
+
+all users, work areas, geofences, and
+system settings. Has final authority on
+
+Count
+(Estimated
+)
+
+Web
+High
+
+all approvals.
+Field
+
+Access
+
+Field officer assigned to monitor workers Medium
+
+Dashboard 1
++ Mobile
+Web
+
+Approx.
+
+Supervisor
+
+in specific areas. Reviews attendance,
+
+Dashboard 5-10
+
+proofs, and reports issues to Admin. Can
+
++ Mobile
+
+accept/deny proofs for assigned areas
+only.
+Frontline worker (street sweeper)
+Field Worker
+
+assigned to specific work zones. Logs
+
+Low-Medi Mobile
+
+attendance, submits accomplishment
+
+um
+
+Only
+
+Approx. 50
+
+proofs, requests leave.
+
+2.4. Operating Environment
+●​ The system shall run in android 7+ and IOS 10+ capable of using camera, GPS,
+Internet, SQLite for offline storage.
+●​ The system shall be accessible through any modern web browser (Google Chrome,
+Microsoft Edge, Mozilla Firefox, Safari) on desktop or laptop computer.
+●​ The system shall use Supabase for database storage.
+●​ The system shall use Vercel (free tier) for web hosting.
+●​ The system shall use Firebase Cloud Messaging for push notification features,
+●​ The system shall use OpenStreetMap for in-app navigation feature for geofencing.
+
+2.5. Design Constraints
+●​ The system must utilize open-source and free-tier solutions (e.g., Supabase Free Tier
+and Vercel Free Tier).
+●​ The system must comply with the Data Privacy Act of 2012 (Republic Act No.
+10173).
+●​ Core field functions, including attendance recording and proof capture, must remain
+operational even without an internet connection.
+●​ The mobile application must support Android 7.0 and above. Older devices may have
+limited face recognition capabilities.
+●​ Facial recognition data must be stored locally on the device and not in cloud storage.
+●​ The system must be deployable using minimal LGU IT infrastructure requirements.
+●​ The system must support English and Filipino, with Cebuano and Waray considered
+as a future enhancement.
+
+●​ The geofencing feature must support polygon-shaped boundaries to accommodate
+irregular work area boundaries.
+●​ All proof images must include embedded date, time, and location information as both
+image metadata and a visible overlay.
+
+2.6. Assumptions
+●​ Field workers have access to Android 7.0 or later smartphones equipped with a
+camera and GPS.
+●​ Field workers possess sufficient digital literacy to operate the mobile application.
+●​ Internet connectivity may be intermittent, and offline functionality is sufficient to
+support field operations during connectivity gaps.
+●​ GPS signals are available in all designated work areas to enable geofence validation.
+●​ The LGU has designated administrative personnel to manage and maintain the
+system.
+●​ The LGU has assigned Field Supervisors to monitor workers in their designated work
+areas.
+●​ Workers are willing to use facial recognition and location tracking for attendance
+verification.
+●​ The LGU provides complete and accurate worker information during the initial
+system setup.
+●​ The LGU complies with the Data Privacy Act of 2012 (Republic Act No. 10173) and
+other applicable data protection regulations.
+●​ The Supabase Free Tier is sufficient to support the initial deployment, including
+approximately 100 workers and 5 supervisors.
+●​ The Vercel Free Tier is sufficient to host the web dashboard during the initial
+deployment.
+●​ Firebase Cloud Messaging (FCM) services are available and accessible in the
+Philippines.
+●​ OpenStreetMap map tiles are available for geographic visualization.
+●​ Pre-trained MobileFaceNet and CNN Anti-Spoofing models are available and can be
+deployed on supported Android devices.
+●​ Payroll integration is not required during the initial deployment of the system.
+●​ Users can understand English and/or Filipino for application navigation.
+
+●​ Worker devices have cameras capable of capturing facial images with sufficient
+quality for recognition.
+●​ The LGU can facilitate worker enrollment, including face registration and QR code
+distribution, during onboarding.
+
+2.7. Dependencies
+●​ The system depends on Supabase for user authentication, database management, and
+real-time services.
+●​ Spatial data processing depends on the PostGIS extension in PostgreSQL.
+●​ Push notifications depend on the availability of Firebase Cloud Messaging (FCM).
+●​ Map visualization depends on the availability of OpenStreetMap tile servers.
+●​ The web dashboard depends on Vercel hosting services.
+●​ Real-time synchronization and online features depend on internet connectivity.
+●​ Geofence validation depends on the availability and accuracy of GPS signals.
+●​ The mobile application depends on devices running Android 7.0 or later.
+●​ Face recognition functionality depends on the TensorFlow Lite runtime.
+●​ Attendance verification depends on workers completing the face registration process.
+●​ Successful deployment depends on the cooperation and adoption of the system by
+LGU personnel.
+●​ Initial system setup depends on the successful migration of worker data.
+●​ System deployment depends on LGU approval of privacy policies and related
+documentation.
+●​ Effective system adoption depends on the successful completion of user training.
+●​ Future use of paid cloud services depends on LGU budget approval.
+●​ Certain system functions depend on the availability and reliability of third-party
+services and APIs.
+
+3. USE CASE DEVELOPMENT
+3.1. UC-01 - Create User Account
+Actor: Admin
+Goal: To create a new user account for a Field Worker or Field Supervisor and register their
+facial data for biometric verification.
+Precondition: The Admin is logged in with valid credentials and has the necessary
+permissions to create user accounts.
+Main Flow:
+1.​ The Admin navigates to Employee Management page.
+2.​ The Admin selects "Add Employee".
+3.​ The Admin enters employee details (Name, Role, Contact Information).
+4.​ The Admin selects the employee's role (Field Worker or Field Supervisor).
+5.​ The Admin uploads or uses the system camera to capture the employee's face.
+6.​ The system converts the captured face into a face embedding (feature vector) .
+7.​ The system securely stores the face embedding in the database .
+8.​ The system automatically generates a unique QR code for the employee.
+9.​ The Admin assigns the employee to a work area (if applicable).
+10.​ The Admin saves the account.
+11.​The system creates the account and sends a welcome notification.
+Alternative Flow:
+1.​ If the Admin submits incomplete information, the system prevents submission and
+highlights all required fields.
+2.​ If face capture fails, the system allows the Admin to retry.
+Postcondition: The user account is created in the system; the QR code is generated and
+available for printing; the face embedding is stored securely for future biometric verification.
+
+3.2. UC-02 - Manage Work Areas and Geofences
+Actor: Admin
+Goal: To create, edit, or delete work areas with defined geofence boundaries (polygon or
+circle) for attendance restriction
+Precondition: The Admin is logged in and has access to the Area Management module
+Main Flow:
+
+1.​ The Admin navigates to Area Management page.
+2.​ The Admin views the interactive map with existing geofences.
+3.​ The Admin selects "Add Area".
+4.​ The Admin draws a geofence on the map (polygon or circle).
+5.​ The Admin sets the area name and other properties.
+6.​ The Admin assigns a Field Supervisor to the area.
+7.​ The Admin assigns Field Workers to the area.
+8.​ The Admin saves the changes.
+9.​ The system creates the geofence and assigns the workers and supervisor.
+Alternative Flow:
+1.​ If the Admin draws an invalid geofence (self-intersecting polygon), the system
+prevents creation and prompts the Admin to redraw.
+2.​ If the Admin attempts to delete an area with active workers assigned, the system
+warns and requires confirmation before proceeding.
+3.​ If the Admin edits an existing geofence, the system updates the boundary and notifies
+all assigned workers.
+Postcondition: The work area with geofence is created/updated/deleted in the system. The
+assigned workers can now log attendance only within this boundary.
+
+3.3. UC-03 - Approve or Deny Leave Request
+Actor: Field Supervisor
+Goal: To review, approve, or deny a leave request submitted by a Field Worker
+Precondition: The Admin is logged in. A leave request has been submitted by a Field
+Worker
+Main Flow:
+1.​ The Admin navigates to Leave Management page.
+2.​ The Admin views the list of pending leave requests (filtered by area).
+3.​ The Admin selects a leave request.
+4.​ The Admin reviews the worker's details, reason for leave, and optional proof image.
+5.​ The Admin selects "Approve" or "Deny".
+6.​ If denying, the Admin enters a reason for denial.
+7.​ The system updates the leave request status.
+8.​ The system sends a notification to the worker and their Field Supervisor.
+Alternative Flow:
+
+1.​ If the Admin denies the request without providing a reason, the system prompts the
+Admin to enter a reason.
+Postcondition: The leave request is approved or denied; the worker and Supervisor are
+notified of the decision
+
+3.4. UC-04 - Review and Approve Accomplishment Proof
+Actor: Field Supervisor
+Goal: To review, approve, or deny an accomplishment proof submitted by a Field Worker.
+Precondition: The user is logged in, an accomplishment proof has been submitted by a Field
+Worker. For the Field Supervisor, the proof must be from an assigned area.
+The user is logged in; an accomplishment proof has been submitted by a Field Worker; for
+Field Supervisor, the proof must be from an assigned area.
+Main Flow:
+1.​ The user navigates to Accomplishment Management page.
+2.​ The user views the list of pending proofs (filtered by area for Supervisor; all areas for
+Admin).
+3.​ The user selects a proof.
+4.​ The system displays the proof image with visual timestamp and coordinates overlay.
+5.​ The system displays the extracted metadata summary (date, time, location).
+6.​ The system indicates if the metadata matches the assigned area.
+7.​ The user selects "Approve" or "Deny".
+8.​ If denying, the user enters a reason.
+9.​ The system updates the proof status.
+10.​The system sends a notification to the worker and the other approver (Supervisor or
+Admin).
+Alternative Flow:
+1.​ If the user is Field Supervisor and the field worker who submits is not from their
+assigned area, the system does not display the accomplishment report.
+2.​ If the metadata extracted from the image does not match the assigned area, the system
+flags this and displays a warning to the user.
+3.​ If the other approver has already approved the proof, the current user can request an
+appeal.
+Postcondition: The accomplishment proof is approved or denied; the worker and other
+approver are notified.
+
+3.5. UC-05 - Generate Reports
+Actor: Admin or Field Supervisor
+Goal: To generate and export attendance or performance reports.
+Precondition: The user is logged in.
+Main Flow:
+1.​ The user navigates to Reports page.
+2.​ The user selects a report type (Attendance Summary, Area Performance, Worker
+Performance, Accomplishment Report).
+3.​ The user applies filters (date range, area, worker, status).
+4.​ The system displays a preview of the report.
+5.​ The user selects export format (Excel, PDF, or CSV) 6. The system generates and
+downloads the report
+Alternative Flow:
+1.​ If the user is a Field Supervisor, the system only shows areas assigned to them.
+2.​ If no data matches the selected filters, the system displays a "No data found" message.
+Postcondition: The report is generated and downloaded in the selected format.
+
+3.6. UC-06 - Send Notification
+Actor: Admin
+Goal: To send in-app notifications to users for announcements, warnings, or confidential
+feedback.
+Precondition: The Admin is logged in.
+Main Flow:
+1.​ The Admin navigates to Notifications page.
+2.​ The Admin composes a message.
+3.​ The Admin selects recipients (All Users, All Supervisors, All Workers, Specific
+User).
+4.​ The Admin marks the notification as "Confidential" if needed (only recipient sees).
+5.​ The Admin sends the notification.
+6.​ The system delivers the in-app notification to selected recipients via Firebase Cloud
+Messaging.
+Alternative Flow:
+1.​ If the Admin selects "Confidential" for a notification, the system ensures only the
+intended recipient can view it.
+
+2.​ If the Admin sends a notification without a message, the system prevents sending.
+Postcondition: The notification is sent to all selected recipients.
+
+3.7. UC-07 - Shuffle Worker Assignments
+Actor: Admin
+Goal: To reassign Field Workers to different work areas, typically done monthly.
+Precondition: The Admin is logged in; the monthly shuffle is due.
+Main Flow:
+1.​ The Admin navigates to Area Management page.
+2.​ The Admin views all work areas with current worker assignments.
+3.​ The Admin selects a work area.
+4.​ The Admin views the list of available workers.
+5.​ The Admin selects workers to assign to this area.
+6.​ The Admin confirms the assignment.
+7.​ The system updates the worker assignments.
+8.​ The system sends notifications to affected workers.
+Alternative Flow:
+1.​ If the Admin attempts to assign a worker who is already assigned to another area, the
+system warns and prompts confirmation.
+2.​ If the Admin selects "Bulk Assign," the system allows assigning multiple workers to
+multiple areas simultaneously.
+Postcondition: Worker assignments are updated; affected workers receive notifications of
+their new assignments.
+
+3.8. UC-08 - View GIS Workforce Map
+Actor: Admin or Field Supervisor
+Goal: To view real-time worker locations and work zone status on an interactive map.
+Precondition: The user is logged in.
+Main Flow:
+1.​ The user navigates to GIS Map page.
+2.​ The system displays an interactive map with: - Worker markers showing real-time
+locations - Color-coded attendance status (On-site/Off-site) - Geofence overlays for
+all or assigned areas - Area names and boundaries.
+3.​ The user clicks on a worker marker.
+
+4.​ The system displays worker details (name, area, status, last check-in).
+Alternative Flow:
+1.​ If the user is a Field Supervisor, the system only displays areas assigned to them.
+2.​ If the user enables "Historical Movement" toggle, the system displays worker
+movement paths for the day.
+Postcondition: The user has real-time visibility of worker locations and zone status.
+
+3.9. UC-09 - View and Respond to Alerts
+Actor: Admin
+Goal: To view and respond to system-generated alerts for consecutive absences, credit
+warnings, and breaches.
+Precondition: The Admin is logged in; alerts have been generated by the system.
+Main Flow:
+1.​ The Admin navigates to Notifications/Alerts page.
+2.​ The Admin views alerts categorized by type: - Consecutive Absence Alerts (3+
+absences) - Credit Score Warnings (Yellow/Red) - Breach Alerts.
+3.​ The Admin selects an alert.
+4.​ The system displays affected worker details.
+5.​ The Admin sends a warning notification to the worker and Supervisor.
+6.​ The system logs the alert response.
+Alternative Flow:
+1.​ If the Admin dismisses an alert without action, the system logs the dismissal for audit
+purposes.
+Postcondition: The alert is acknowledged and responded to; the response is logged in the
+system.
+
+3.10. UC-10 - Monitor Assigned Workers (Field Supervisor)
+Actor: Field Supervisor
+Goal: To monitor the attendance and location status of Field Workers assigned to the
+Supervisor's areas
+Precondition: The Field Supervisor is logged in.
+Main Flow:
+1.​ The Supervisor navigates to the Dashboard.
+2.​ The Supervisor views the list of assigned areas.
+
+3.​ The Supervisor views the team attendance summary.
+4.​ The Supervisor views the GIS map showing worker locations in assigned areas.
+5.​ The Supervisor clicks on a worker marker.
+6.​ The System displays the worker's profile with attendance history
+Alternative Flow:
+1.​ If the Supervisor filters workers by area, the system displays only workers in that area
+Postcondition: The Supervisor has full visibility of all assigned workers' attendance and
+location status.
+
+3.11. UC-11 - Report Worker Issue
+Actor: Field Supervisor or Field Worker
+Goal: To report an issue about another worker's conduct, absence, or performance to the
+appropriate authority.
+Precondition: The user is logged in, and an issue has been observed.
+Main Flow:
+1.​ The user navigates to the Report Worker page.
+2.​ The user selects the worker to report
+3.​ The user selects an issue type (e.g., not working, outside assigned area, poor
+performance).
+4.​ The user adds a description of the issue.
+5.​ The user optionally attaches a proof image.
+6.​ The user submits the report.
+7.​ The system sends a notification to the Supervisor (if Worker reports) or Admin (if
+Supervisor reports).
+Alternative Flow:
+1.​ If the user submits a report without a description, the system prevents submission and
+prompts for a description.
+Postcondition: The report is sent to the appropriate authority for review.
+
+3.12. UC-12 - Generate Reports (Supervisor)
+Actor: Field Supervisor
+Goal: To generate and export reports specific to the Supervisor's assigned areas.
+Precondition: The Field Supervisor is logged in.
+Main Flow:
+
+1.​ The Supervisor navigates to Reports page.
+2.​ The Supervisor selects a report type (Attendance Summary, Area Performance).
+3.​ The Supervisor applies filters (date range, area, worker).
+4.​ The system displays a preview of the report.
+5.​ The Supervisor selects export format (Excel, PDF, or CSV).
+6.​ The Supervisor optionally sends the report to Admin.
+7.​ The system generates and downloads/sends the report.
+Alternative Flow:
+1.​ If the Supervisor attempts to generate a report for an unassigned area, the system does
+not show that area.
+Postcondition: The report is generated and exported or sent to Admin.
+
+3.13. UC-13 - View Leave Requests (Supervisor)
+Actor: Field Supervisor
+Goal: To view leave requests submitted by workers assigned to the Supervisor's areas.
+Precondition: The Supervisor is logged in.
+Main Flow:
+1.​ The Supervisor navigates to Leave Management page.
+2.​ The Supervisor views the list of leave requests from assigned workers.
+3.​ The Supervisor selects a request to view details.
+4.​ The system displays the request details (worker name, reason, dates, proof image).
+5.​ The Supervisor notes they cannot accept/deny (Admin only).
+6.​ The Supervisor optionally adds comments for Admin's consideration
+Alternative Flow:
+1.​ If the Supervisor filters leave requests by status, the system displays only requests
+matching the filter.
+Postcondition: The Supervisor is informed of all leave requests from assigned workers.
+
+3.14. UC-14 - First-Time Login via QR Code
+Actor: Field Worker
+Goal: To log in to the system for the first time by scanning the QR code printed on the
+worker's ID card.
+
+Precondition: The Admin has created the worker's account and face embedding; the QR
+code is printed on the worker's ID card or available digitally.
+Main Flow:
+1.​ The worker downloads the mobile application.
+2.​ The worker opens the app and sees the "Scan ID to Login" button.
+3.​ The worker taps the button.
+4.​ The app opens the camera.
+5.​ The worker scans the QR code on the ID card.
+6.​ The app authenticates the worker.
+7.​ The system stores the session persistently.
+8.​ The worker is logged in and sees the Dashboard
+Alternative Flow:
+1.​ If the worker scans an invalid QR code, the system displays an error and prompts the
+worker to try again.
+2.​ If the worker has saved the QR code as an image, they can choose to scan from the
+gallery.
+Postcondition: The worker is logged in; the session is saved for all future use.
+
+3.15. UC-15 - Log Attendance
+Actor: Field Worker
+Goal: To log attendance (Time-in, Time-out) using facial recognition and geofence
+validation.
+Precondition: The worker is logged in; the worker is within the assigned geofence boundary.
+Main Flow:
+1.​ The worker opens the app (auto-logged in).
+2.​ The worker navigates to the Attendance page.
+3.​ The worker selects an attendance action: - Time-in - Time-out.
+4.​ The system checks if the worker is inside the assigned geofence.
+5.​ The system performs facial recognition (on-device).
+6.​ The system verifies the captured face matches the registered face embedding.
+7.​ If both checks pass, the system logs attendance with: - Timestamp - GPS coordinates Selfie proof.
+8.​ The system updates the attendance status on the dashboard.
+
+Alternative Flow:
+1.​ If the worker is outside the assigned geofence, the system displays "Outside
+geofence" and does not allow attendance logging.
+2.​ If facial recognition fails, the system uses the built-in camera to capture a selfie with
+embedded date, time, and location.
+3.​ If there is no internet connection, the system caches the attendance locally and syncs
+when connectivity is restored.
+Postcondition: Attendance is recorded (or cached for offline sync) in the system.
+
+3.16. UC-16 - Submit Accomplishment Proof
+Actor: Field Worker
+Goal: To submit proof of completed work via image capture with embedded location, date,
+and time metadata.
+Precondition: The worker is logged in, and work has been completed.
+Main Flow:
+1.​ The worker navigates to the Accomplishment page.
+2.​ The worker taps "Upload Today's Report" (default assigned area).
+3.​ The worker opens the app's built-in camera.
+4.​ The worker captures a proof image.
+5.​ The system automatically: - Embeds date, time, and location coordinates in metadata Burns visual overlay on the image (date, time, coordinates).
+6.​ The worker adds an optional message.
+7.​ The worker submits the proof.
+8.​ The system validates the metadata against the assigned area.
+9.​ The system sets the status to "Pending".
+10.​The system notifies the Supervisor and Admin.
+Alternative Flow:
+1.​ If the worker taps the floating "+" button, the worker selects an area from the map
+(assigned or unassigned) before capturing.
+2.​ If the captured image does not contain valid metadata, the system warns the worker
+and allows recapture.
+3.​ If there is no internet, the proof is cached locally and syncs when online.
+
+Postcondition: The accomplishment proof is submitted and pending Supervisor/Admin
+approval.
+
+3.17. UC-17 - Request Leave
+Actor: Field Worker
+Goal: To submit a leave request with a reason and optional proof image.
+Precondition: The worker is logged in.
+Main Flow:
+1.​ The worker navigates to the Leave page.
+2.​ The worker selects a leave type (Emergency, Sick, Vacation, Other).
+3.​ The worker enters start date, end date, and reason (required).
+4.​ The worker optionally attaches a proof image.
+5.​ The worker submits the request.
+6.​ The system sends a notification to the Supervisor (informed) and Admin (for
+approval).
+7.​ The request status shows "Pending".
+Alternative Flow:
+1.​ If the worker submits a request without a reason, the system prevents submission and
+prompts for a reason.
+Postcondition: The leave request is submitted and awaiting Admin approval.
+
+3.18. UC-18 - View Performance Credits
+Actor: Field Worker
+Goal: To view personal performance credit score, color indicator, and credit history.
+Precondition: The worker is logged in.
+Main Flow:
+1.​ The worker navigates to the Profile page.
+2.​ The system displays the worker's star credit score (0-100) with color indicator: 80-100: Green (Good) - 50-70: Yellow (Warning) - 10-40: Red (Critical).
+3.​ The worker views the credit history: - Dates of deductions (absences) - Dates of
+additions (attendance, approved reports).
+4.​ The worker views the attendance summary.
+Alternative Flow:
+1.​ If the credit score is Yellow (50-70), the system displays a warning message.
+
+2.​ If the credit score is Red (10-40), the system displays a critical alert.
+Postcondition: The worker can see their current performance status and history.
+
+3.19. UC-19 - Offline Attendance Capture
+Actor: Field Worker (System)
+Goal: To log attendance when there is no internet connectivity.
+Precondition: The worker has no internet connectivity; the worker is within the geofence.
+Main Flow:
+1.​ The worker opens the app (offline mode indicator shown).
+2.​ The worker performs an attendance action.
+3.​ The system captures a selfie with embedded metadata.
+4.​ The system caches the attendance data locally (SQLite).
+5.​ The system displays "Offline - Will sync when online" message.
+6.​ When internet is restored, the system auto-syncs the cached data.
+7.​ The system validates the metadata against the assigned area.
+Alternative Flow:
+1.​ If the worker attempts to submit multiple offline records without syncing, the system
+queues them in order of creation.
+Postcondition: Attendance is captured offline and synced when connectivity is restored.
+
+3.20. UC-20 - Offline Attendance Capture
+Actor: System
+Goal: To detect when a worker leaves their assigned geofence and notify relevant parties.
+Precondition: The worker is logged in and has an active attendance session.
+Main Flow:
+1.​ The system monitors the worker's location continuously.
+2.​ The worker leaves the assigned geofence.
+3.​ The system detects the breach.
+4.​ The system logs the breach event.
+5.​ The system sends a warning notification to the worker.
+6.​ The system sends a breach alert to the Supervisor.
+7.​ The system sends a breach alert to the Admin.
+Alternative Flow:
+1.​ If the worker returns to the geofence within the allowed grace period, the system
+cancels the breach status.
+
+Postcondition: The breach is logged; all relevant parties are notified.
+
+3.21. UC-21 - Auto-Sync Offline Data
+Actor: System
+Goal: To automatically synchronize locally cached offline data when internet connectivity is
+restored.
+Precondition: The device was offline; attendance and proof data were cached locally.
+Main Flow:
+1.​ The device detects internet connectivity restored.
+2.​ The system checks the local cache (SQLite) for unsynced data.
+3.​ The system uploads attendance records.
+4.​ The system uploads accomplishment proofs.
+5.​ The system validates metadata for each submission.
+6.​ The system updates the status to "Synced”.
+7.​ The system notifies the user of successful sync.
+8.​ If there are conflicts, the system alerts the Admin or Supervisor.
+Alternative Flow:
+1.​ If a sync conflict is detected (server record already exists), the system preserves the
+existing server record and logs the conflict.
+2.​ If the sync fails due to server error, the system retries after a delay.
+Postcondition: All offline data is synced to the server; no data loss; sync status is updated.
+
+3.22. UC-22 - Auto-Sync Offline Data
+Actor: System
+Goal: To automatically generate and send an alert when a Field Worker has 3 or more
+consecutive absences.
+Precondition: A Field Worker has 3 or more consecutive days of absence.
+Main Flow:
+1.​ The system detects the 3rd consecutive absence of a worker.
+2.​ The system generates an alert.
+3.​ The system adds the alert to the Admin's notification tab.
+4.​ The system sends a notification to the Admin, Supervisor, and worker.
+5.​ The Admin views the alert.
+6.​ The Admin sends a warning notification to the worker.
+
+Alternative Flow:
+1.​ If the absence is due to an approved leave, the system does not count it as an absence.
+Postcondition: All relevant parties are notified of the consecutive absence; the alert is
+available for Admin action.
+
+4. USER STORIES
+4.1. US-01 - Field Worker Registration
+As an Administrator, I want to create employee accounts for field supervisors and field
+workers, so that they can access the system.
+
+Acceptance Criteria:
+●​Administrator can create users and provide them usernames.
+● The system displays an error message if registration fails due to invalid or duplicate
+information.
+
+4.2. US-02 - Register Field Worker’s Face
+As an Administrator, I want to register a worker’s face during account creation, so that the
+worker can use facial recognition for attendance.
+
+Acceptance Criteria:
+●​Worker’s face successfully saved and registered.
+●​The system successfully extracts and stores the worker's facial data (face embedding).
+
+4.3. US-03 - User Field Assignment
+As an Administrator, I want to assign workers and supervisors to specific work areas so that
+attendance is location-restricted.
+
+Acceptance Criteria:
+●​Administrator can assign a Field Supervisor to one or more work areas.
+●​The system displays a list of available work areas for assignment.
+
+4.4. US-04 - Work Area Creation
+As an Administrator, I want to create work areas using polygon geofencing on a map so that I
+can define irregular area boundaries.
+
+Acceptance Criteria:
+● Administrator can create a new work area using an interactive map.
+●​Administrator can draw a polygon to define the work area's boundary.
+
+4.5. US-05 - Update Work Area
+As an Administrator, I want to edit or delete work areas so that I can update boundaries when
+needed.
+
+Acceptance Criteria:
+● Administrator can edit the name of an existing work area.
+● Administrator can modify the polygon boundary of an existing work area.
+
+4.6. US-06 - Filtered List of Workers
+As an Administrator, I want to view a list of all employees filtered by area so that I can
+manage them efficiently
+
+Acceptance Criteria:
+● Administrator can view a list of all registered employees.
+● Administrator can filter the employee list by work area.
+
+4.7. US-07 - View Worker Profile
+As an Administrator, I want to view worker profiles with their performance and attendance
+history so that I can evaluate their work.
+
+Acceptance Criteria:
+● Administrator can view a worker's profile by selecting them from the employee list.
+● The profile displays the worker's personal and employment information (e.g., name, role,
+assigned work area, supervisor).
+
+4.8. US-08 - Leave Request Approval
+As an Administrator, I want to approve or deny leave requests so that I can manage worker
+absences.
+
+Acceptance Criteria:
+● Administrator can view all submitted leave requests.
+● Administrator can approve or deny a leave request.
+
+4.9. US-09 - Validation of Accomplishment Reports
+As an Administrator, I want to approve or deny accomplishment proofs so that I can validate
+work completion.
+
+Acceptance Criteria:
+● Administrator can view all submitted accomplishment reports.
+● Administrator can approve or deny an accomplishment report.
+
+4.10. US-10 - Report Generation
+As an Administrator, I want to generate attendance and performance reports so that I can
+analyze workforce data
+
+Acceptance Criteria:
+● Administrator can generate attendance reports for a selected date range.
+● Administrator can generate performance reports for a selected date range.
+● Administrator can filter reports by work area, worker, or supervisor.
+
+4.11. US-11 - Report Export
+As an Administrator, I want to export reports to PDF or Excel so that I can share them with
+stakeholders.
+
+Acceptance Criteria:
+● Administrator can export generated reports in PDF/Excel format.
+● The exported report includes relevant details such as the report title, date generated, and
+selected filters.
+
+4.12. US-12 - Notification and Announcement Management
+As an Administrator, I want to send notifications/announcements to all users, specific roles,
+or specific users so that I can communicate effectively.
+
+Acceptance Criteria:
+● Administrator can create a new announcement or notification.
+● Administrator can send the announcement to all users, selected roles, or specific users.
+
+4.13. US-13 - Private Notifications
+As an Administrator, I want to send confidential notifications so that sensitive feedback is
+private.
+
+Acceptance Criteria:
+● Administrator can compose a private notification.
+● The system delivers the notification only to the selected recipient.
+
+4.14. US-14 - Consecutive Absence Alerts
+As an Administrator, I want to receive alerts for consecutive absences (3+ days) so that I can
+take action.
+
+Acceptance Criteria:
+● The system automatically detects workers who have been absent for three (3) or more
+consecutive working days.
+● The system sends an alert to the administrator when the absence threshold is reached.
+
+4.15. US-15 - Field Supervisor Dashboard
+As a Field Supervisor, I want to view my assigned areas on a dashboard so that I know where
+to monitor.
+
+Acceptance Criteria:
+● The dashboard displays all work areas assigned to the supervisor.
+● The dashboard displays a summary of attendance for the supervisor's assigned work areas.
+
+4.16. US-16 - View Attendance Summary
+As a Field Supervisor, I want to view attendance summary of workers assigned to my areas
+so that I can monitor their presence.
+
+Acceptance Criteria:
+● Field Supervisor can view the attendance summary of workers assigned to their work areas.
+● The system displays each worker's attendance status (e.g., Present, Absent, Late, On
+Leave).
+
+4.17. US-17 - Accomplishment Validation in Assigned Area
+As a Field Supervisor, I want to approve or deny accomplishment proofs for my assigned
+areas so that I can validate work completion.
+
+Acceptance Criteria:
+● Field Supervisor can view accomplishment reports submitted by workers assigned to their
+work areas.
+● The system displays the report details, including the worker, submission date, description,
+work area, and attached proof.
+
+4.18. US-18 - View Leave Requests in Assigned Area
+As a Field Supervisor, I want to view leave requests from workers in my assigned areas so
+that I am informed.
+
+Acceptance Criteria:
+● Field Supervisor can view leave requests submitted by workers assigned to their work
+areas.
+● The system displays only leave requests from workers within the supervisor's assigned
+work areas.
+
+4.19. US-19 - Report Worker Issues
+As a Field Supervisor, I want to report worker issues to the Admin so that they can take
+action.
+
+Acceptance Criteria:
+● The supervisor can enter the issue details and requires to attach supporting evidence (e.g.,
+photos or documents).
+● The Administrator is notified when a new worker issue report is submitted.
+
+4.20. US-20 - Report Generation on Assigned Area
+As a Field Supervisor, I want to generate reports for my assigned areas so that I can analyze
+workforce data
+
+Acceptance Criteria:
+● Field Supervisor can generate attendance and performance reports for their assigned work
+areas.
+● The system allows the supervisor to specify a date range for the report.
+
+4.21. US-21 - Report Export on Assigned Area
+As a Field Supervisor, I want to export reports to PDF or Excel so that I can share them with
+Admin.
+
+Acceptance Criteria:
+● Field Supervisor can export generated reports in PDF/Excel format.
+● The exported report contains only data from the supervisor's assigned work areas.
+
+4.22. US-22 - Leave Request Notification​
+As a Field Supervisor, I want to receive leave request notifications so that I am informed of
+worker absences.
+
+Acceptance Criteria:
+● The system notifies the Field Supervisor when a worker in their assigned work area
+submits a leave request.
+● Field Supervisor can open the notification to view the leave request details.
+
+4.23. US-23 - Persistent Login​
+As a Field Worker, I want to stay logged in permanently after first login so that I don't need to
+log in every day.
+
+Acceptance Criteria:
+● Field Worker remains logged in after successfully completing the initial login.
+● The system automatically restores the user's session when the application is reopened.
+
+4.23. US-23 - Automatic Image Metadata Embedding
+As a Field Worker, I want the image to automatically have date, time, and location embedded
+so that my proof is verifiable.
+
+Acceptance Criteria:
+● The system automatically embeds the current date, time and location on every proof image
+captured within the application.
+● The system automatically burns the date, time, and location on the image itself.
+
+4.24. US-24 - Submit Accomplishment Report
+As a Field Worker, I want to submit accomplishment reports for my assigned area by default
+so that it's quick and easy.
+
+Acceptance Criteria:
+● The system automatically selects the worker's assigned work area when creating an
+accomplishment report.
+● The worker can enter a description and attach one or more proof images before submitting
+the report.
+
+4.25. US-25 - Submit Additional Accomplishment Report
+As a Field Worker, I want to submit additional accomplishment reports for any area I worked
+on so that my extra work is recorded.
+
+Acceptance Criteria:
+● Field Worker can create an additional accomplishment report for a work area other than
+their assigned area.
+● The system allows the worker to select the work area for the additional accomplishment
+report.
+
+4.26. US-26 - Leave Request
+As a Field Worker, I want to request leave with a reason and optional proof image so that I
+can be excused from work.
+
+Acceptance Criteria:
+● Field Worker can create a leave request by specifying the leave dates, leave type, and
+reason.
+● The worker can optionally attach a supporting proof image or document to the leave
+request.
+
+4.27. US-27 - Offline Mode
+As a Field Worker, I want to use the app offline so that I can log attendance and submit
+proofs even without internet,
+
+Acceptance Criteria:
+● Field Worker can record attendance without an active internet connection.
+● Field Worker can capture and submit accomplishment reports while offline.
+● The system securely stores offline attendance records and reports on the device.
+
+4.28. US-28 - Automatic Data Synchronization
+As a Field Worker, I want my offline data to auto-sync when internet is available so that I
+don't lose anything.
+
+Acceptance Criteria:
+● The system automatically detects when an internet connection becomes available.
+● The system automatically synchronizes all pending offline attendance records,
+accomplishment reports, and leave requests.
+
+4.29. US-29 - Camera Selection for Proof Images
+As a Field Worker, I want to use the front or back camera for proof images so that I can work
+around hardware issues.
+
+Acceptance Criteria:
+● Field Worker can switch between the front and back camera before capturing a proof
+image.
+● The system remembers the last selected camera during the current session.
+
+4.30. US-30 - Simple and Intuitive User Interface
+As a Field Worker, I want to have a minimal and clean user interface so that the application is
+easy to understand and use.
+
+Acceptance Criteria:
+● Navigation is simple and allows workers to access common tasks (e.g., attendance,
+accomplishment reports, leave requests) within a few taps.
+● Buttons, icons, and labels are clearly visible and easy to understand.
+● The interface is responsive and usable on Android 7.0+ devices with different screen sizes.
+
+5. FUNCTIONAL REQUIREMENTS
+5.1. Functional Requirements Table
+
+Requirement ID
+
+Requirement
+
+Priority
+
+The system shall allow Admin and Field
+FR-01
+
+Supervisor to log in using Username, Password, High
+and MFA (OTP)
+
+FR-02
+
+FR-03
+
+FR-04
+
+FR-05
+
+The system shall allow Field Workers to log in
+via QR code scanning on first use
+The system shall store Field Worker sessions
+persistently after first login
+The system shall support facial recognition as
+an authentication factor for attendance actions
+The system shall support three user roles:
+Admin, Field Supervisor, Field Worker
+
+Source
+UC-01,
+UC-10
+
+High
+
+UC-14
+
+High
+
+UC-14
+
+High
+
+UC-15
+
+High
+
+UC-01
+UC-01,
+
+FR-06
+
+The system shall restrict access to features
+based on user role
+
+High
+
+UC-03,
+UC-04,
+UC-10
+
+FR-07
+
+FR-08
+
+FR-09
+
+FR-10
+
+FR-11
+
+The system shall allow Admin to create,
+update, delete, and view all user accounts
+The system shall allow Admin to assign roles to
+users
+The system shall allow Admin to view all user
+profiles
+The system shall allow Admin to assign
+multiple work areas to a Field Supervisor
+The system shall allow Admin to assign
+multiple Field Workers to a work area
+
+High
+
+UC-01
+
+High
+
+UC-01
+
+High
+
+UC-01
+
+High
+
+UC-02
+
+High
+
+UC-02
+
+FR-12
+
+FR-13
+
+The system shall allow Admin to set work
+schedules per worker
+The system shall allow Admin to view worker
+performance metrics
+
+Medium
+
+UC-01
+
+High
+
+UC-05
+
+High
+
+UC-02
+
+The system shall allow Admin to
+FR-14
+
+create,edit,delete work areas with defined
+geofence boundaries
+The system shall require the worker to be
+
+FR-15
+
+within the assigned geofence for all attendance High
+actions
+
+FR-16
+
+FR-17
+
+FR-18
+
+FR-19
+
+FR-20
+
+The system shall record GPS coordinates for all
+
+UC-15,
+UC-20
+
+High
+
+UC-15
+
+Medium
+
+UC-15
+
+High
+
+UC-05
+
+High
+
+UC-10
+
+High
+
+UC-16
+
+reject accomplishment proofs for assigned areas High
+
+UC-04
+
+attendance actions
+The system shall allow workers to view their
+attendance history
+The system shall allow Admin to view
+attendance records for all areas
+The system shall allow Supervisor to view
+attendance records for assigned areas only
+The system shall allow Field Workers to submit
+accomplishment reports per task completion
+The system shall allow Supervisor to accept or
+
+FR-21
+
+only
+FR-22
+
+FR-23
+
+FR-24
+
+The system shall allow workers to resubmit
+rejected proofs
+The system shall allow Field Workers to submit
+leave requests anytime
+The system shall allow Field Supervisors to
+view leave requests from assigned workers
+
+Medium
+
+UC-16
+
+High
+
+UC-17
+
+High
+
+UC-13
+
+FR-25
+
+FR-26
+
+FR-27
+
+FR-28
+
+FR-29
+
+FR-30
+
+FR-31
+
+FR-32
+
+FR-33
+
+FR-34
+
+FR-35
+
+FR-36
+
+The system shall allow Admin to send warning
+notifications to workers
+The system shall allow Admin to generate
+attendance reports for all areas
+The system shall allow Supervisor to generate
+reports for assigned areas only
+The system shall display real-time worker
+locations on a map
+The system shall display assigned work zones
+(geofences) on the map
+The system shall allow Admin to view the GIS
+map
+The system shall allow Supervisor to view the
+GIS map for assigned areas only
+The system shall allow Admin to view all
+worker reports
+The system shall allow attendance logging
+without internet connectivity
+The system shall allow image proof capture
+without internet connectivity
+The system shall automatically sync offline
+data when internet is restored
+The system shall display behavior or credit
+score of a field worker
+
+High
+
+UC-06,UC-0
+9
+
+High
+
+UC-05
+
+High
+
+UC-12
+
+High
+
+UC-08
+
+High
+
+UC-08
+
+High
+
+UC-08
+
+High
+
+UC-08
+
+High
+
+UC-05
+
+High
+
+UC-19
+
+High
+
+UC-19
+
+High
+
+UC-21
+
+High
+
+UC-18
+
+6. NON-FUNCTIONAL REQUIREMENTS
+6.1. Non-Functional Requirements Table
+The non-functional requirements below are organized according to the ISO/IEC
+25010 software product quality characteristics that will later serve as the basis for the
+system’s evaluation.
+
+Req. ID
+
+Category
+
+NFR-01
+
+Performance
+
+NFR-02
+
+Performance
+
+NFR-03
+
+Performance
+
+NFR-04
+
+Performance
+
+NFR-05
+
+Performance
+
+NFR-06
+
+Performance
+
+NFR-07
+
+Performance
+
+NFR-08
+
+NFR-09
+
+NFR-10
+
+Requirement Statement
+
+Measurement /
+Target
+
+The system shall log attendance actions
+
+< 3 seconds
+
+within acceptable time
+
+response time
+
+The system shall load the GIS map
+within acceptable time
+The system shall launch the mobile
+application within acceptable time
+The system shall process facial
+recognition within acceptable time
+The system shall deliver push
+notifications within acceptable time
+The system shall respond to simple API
+queries within acceptable time
+The system shall respond to complex
+API queries within acceptable time
+
+< 5 seconds
+
+< 5 seconds
+
+< 3 seconds
+
+< 5 seconds
+
+< 500ms
+
+< 2 seconds
+
+Resource
+
+The system shall support concurrent
+
+50+ concurrent
+
+Utilization
+
+users without performance degradation
+
+users
+
+Resource
+
+The system shall maintain consistent
+
+Utilization
+
+frame rate during operation
+
+Resource
+
+The system shall optimize battery usage
+
+Utilization
+
+for field workers
+
+60 fps minimum
+Battery drain <
+20% per 4-hour
+shift
+
+NFR-11
+
+Confidentiality
+
+NFR-12
+
+Confidentiality
+
+NFR-13
+
+Confidentiality
+
+NFR-14
+
+Integrity
+
+NFR-15
+
+Integrity
+
+NFR-16
+
+Integrity
+
+NFR-17
+
+Authentication
+
+NFR-18
+
+Authorization
+
+NFR-19
+
+Authorization
+
+NFR-20
+
+Non-Repudiation
+
+NFR-21
+
+NFR-22
+
+NFR-23
+
+NFR-24
+
+Compliance
+
+The system shall encrypt all data
+
+HTTPS / TLS
+
+transmission between client and server
+
+1.2+
+
+The system shall encrypt sensitive user
+
+AES-256
+
+data at rest
+
+encryption
+
+The system shall store facial recognition Not stored in
+data locally on devices only
+
+cloud
+
+The system shall store passwords using
+
+BCrypt or
+
+strong cryptographic hashing
+
+equivalent
+
+The system shall use JWT tokens for
+
+JWT with secure
+
+API authentication
+
+signing
+
+The system shall generate unique and
+
+Cryptographically
+
+secure QR codes for worker login
+
+random QR codes
+
+The system shall implement
+
+Password + OTP +
+
+Multi-Factor Authentication
+
+Face
+
+The system shall enforce Role-Based
+
+Restrict actions
+
+Access Control
+
+based on user role
+
+The system shall implement session
+
+30 minutes of
+
+timeout after inactivity
+
+inactivity
+
+The system shall maintain audit logs for Logs stored for 6
+all Admin actions
+The system shall comply with Philippine
+data privacy regulations
+
+Appropriateness
+
+The system shall be intuitive for users
+
+Recognizability
+
+with minimal training
+
+Learnability
+
+Operability
+
+The system shall include an in-app
+tutorial for first-time users
+The system shall be designed
+
+months minimum
+Data Privacy Act
+of 2012 (RA
+10173)
+80% of users
+complete tasks
+without assistance
+Users complete
+tutorial in < 5
+minutes
+Mobile-first
+
+mobile-first for field worker use
+NFR-25
+
+NFR-26
+
+NFR-27
+
+Operability
+
+The system shall have large touch targets Touch targets >
+for field use on mobile
+
+44dp
+Visual
+
+User Error
+
+The system shall provide clear visual
+
+Protection
+
+feedback for user actions
+
+User Interface
+
+The system shall support portrait mode
+
+Portrait mode
+
+Aesthetics
+
+only for mobile
+
+locked
+
+The system shall support English and
+
+Language toggle
+
+Filipino languages
+
+available
+
+The system shall provide clear error
+
+User-friendly error
+
+messages for failed operations
+
+descriptions
+
+NFR-28
+
+Accessibility
+
+NFR-29
+
+Accessibility
+
+NFR-30
+
+Maturity
+
+NFR-31
+
+Fault Tolerance
+
+NFR-32
+
+responsive design
+
+Fault Tolerance
+
+NFR-33
+
+Recoverability
+
+NFR-34
+
+Recoverability
+
+NFR-35
+
+Capacity
+
+NFR-36
+
+Capacity
+
+NFR-37
+
+Capacity
+
+The system shall maintain high
+availability during working hours
+
+confirmation
+within 1 second
+
+99% uptime
+
+The system shall handle network
+
+No data loss on
+
+interruptions without data loss
+
+network failure
+
+The system shall maintain core features
+functionality offline
+
+Attendance +
+proof capture
+work offline
+
+The system shall automatically sync
+
+Sync completes
+
+offline data when connectivity restores
+
+within 1 minute
+
+The system shall ensure no duplicate
+
+No duplicate
+
+records during sync
+
+records created
+
+The system shall support additional users Support 100+ total
+without performance degradation
+
+users
+
+The system shall support addition of new Unlimited work
+work areas without performance impact areas
+The database shall support efficient
+
+PostGIS indexing
+
+spatial queries
+
+optimized
+
+NFR-38
+
+Modularity
+
+NFR-39
+
+Reusability
+
+NFR-40
+
+Analyzability
+
+NFR-41
+
+Modifiability
+
+NFR-42
+
+Adaptability
+
+NFR-43
+
+Adaptability
+
+NFR-44
+
+Installability
+
+NFR-45
+
+Co-existence
+
+NFR-46
+
+Co-existence
+
+NFR-47
+
+NFR-48
+
+NFR-49
+
+NFR-50
+
+NFR-51
+
+Co-existence
+
+Co-existence
+
+Accuracy
+
+Accuracy
+
+Completeness
+
+The system shall use modular
+
+Separation of
+
+architecture for easy maintenance
+
+concerns in code
+
+The system shall allow future feature
+
+Extensible
+
+additions
+
+architecture
+
+The system shall log system errors for
+
+Error logs stored
+
+debugging
+
+for 30 days
+
+The system shall support easy backup
+
+Weekly automated
+
+and restore of data
+
+backups
+
+The mobile app shall support multiple
+
+Android 7.0 and
+
+Android versions
+
+above
+
+The web dashboard shall support modern Chrome, Firefox,
+browsers
+
+Edge, Safari
+
+The mobile app shall be deployable from Google Play Store
+standard app stores compatible
+The mobile app shall work with devices GPS + Camera
+with camera and GPS
+
+required
+
+The mobile app shall support both front
+
+Both cameras
+
+and back cameras
+
+functional
+
+The system shall support devices with
+varying screen sizes
+
+360dp x 800dp
+minimum
+resolution
+
+The system shall support devices with
+
+2GB minimum
+
+2GB+ RAM
+
+RAM
+
+The system shall detect and resolve sync
+conflicts automatically
+
+The system shall validate metadata
+against assigned area during sync
+The system shall sync all offline data
+
+Conflicts resolved
+with server
+priority
+Metadata
+validation
+performed
+100% data synced
+
+when internet is restored
+Sync status
+NFR-52
+
+Timeliness
+
+Sync status shall be visible to users
+
+indicator
+displayed
+
+NFR-53
+
+Durability
+
+Images captured offline shall retain
+metadata and visual overlay
+
+Metadata
+preserved after
+sync
+
+7. SYSTEM ARCHITECTURE
+7.1. System Architecture
+The proposed system employs a three-tiered client-server architecture that consists of
+a Flutter presentation layer, a Supabase application layer, and a PostgreSQL + PostGIS data
+layer. The presentation layer handles all user interface-related responsibilities such as user
+authentication, input collection, and information display for the Admin, Field Supervisor, and
+Field Worker user roles. The mobile application offers a mobile-first user experience to the
+Field Worker while the web dashboard provides a unified view of the system to the Admin
+and Field Supervisor. The application layer is primarily concerned with the execution of the
+system’s core features, workflows, and business logic. It handles RESTful API request
+handling and edge function execution among other responsibilities such as user verification
+and validation. Lastly, the data layer stores and manages the system’s data, including user
+profiles, face embeddings, geo-fencing polygons, attendance records, accomplishment proofs,
+and leaves approvals data. The system uses TensorFlow Lite for on-device facial recognition,
+Firebase Cloud Messaging for push notification handling, and the OpenStreetMap tile service
+via the flutter_map package for map visualization. The architecture ensures modularity,
+maintainability, and scalability while supporting the development of offline-first applications
+and ensuring data and application-level security.
+
+7.2. Technology Stack
+Layer
+
+Frontend (Mobile
+App)
+
+Frontend (Web
+Dashboard)
+
+Backend
+
+Technology
+
+Purpose
+
+Flutter
+
+Cross-platform mobile application framework
+for Android and iOS
+
+flutter_map
+
+GIS/Map rendering library for OpenStreetMap
+integration
+
+SQLite
+
+Local offline database for caching and sync
+
+TensorFlow Lite
+
+On-device facial recognition inference runtime
+
+Flutter Web
+
+Cross-platform web application for Admin and
+Supervisor dashboards
+
+flutter_map
+
+GIS/Map rendering for web dashboard
+
+Supabase
+
+Backend-as-a-Service providing
+authentication, database, real-time
+subscriptions, and file storage
+
+Database Layer
+
+JWT (JSON Web
+Tokens)
+
+API authentication and session management
+
+Firebase Cloud
+Messaging (FCM)
+
+Push notification delivery service
+
+MobileFaceNet
+
+Facial recognition model for face detection
+and verification (on-device)
+
+CNN Anti-Spoofing
+
+Liveness detection model to prevent
+photo/video spoofing (on-device)
+
+Vercel
+
+Web dashboard hosting service (free tier)
+
+PostgreSQL
+
+Primary relational database management
+system
+
+PostGIS
+
+Spatial database extension for PostgreSQL
+(geofence storage and queries)
+
+Supabase Storage
+
+Cloud file storage for proof images and profile
+photos
+
+7.3. System Architecture Diagram
+
+7.4. Deployment Diagram
+
+8. Interface Requirements
+8.1 User Interface Requirements
+The system shall provide the GUI for the following users:
+Admin Dashboard (Web + Mobile):
+●​ Login
+●​ Dashboard
+●​ Employee Management
+●​ Area Management
+●​ Attendance Management
+●​ Leave Management
+●​ Reports
+●​ Notifications
+●​ Profile
+Field Supervisor (Web + Mobile):
+●​ Login
+●​ Dashboard
+●​ Worker Management
+●​ Area Management
+●​ Attendance
+●​ Accomplishment Proofs
+●​ Leave Management
+●​ Reports
+●​ Profile
+Field Worker (Mobile):
+●​ First-Time Login/Scan ID
+●​ Dashboard
+●​ Attendance
+●​ Area Map
+●​ Accomplishment
+
+●​ Leave
+●​ Notifications
+●​ Profile
+●​ Report Worker
+
+8.2. Software Interface Requirements
+The Software Interface Requirements describes how every software application
+communicates in the proposed system.
+Software Applications
+
+Purpose
+
+Flutter
+
+For developing both the mobile app and
+web application.
+
+Supabase
+
+Managing the backend, authentication,
+storage, and database connection.
+
+PostGIS
+
+Stores and processes location and geofence
+data.
+
+Mobilefacenet
+
+For verifying the user's identity through
+facial recognition.
+
+CNN Anti Spoofing
+
+For detecting fake faces to prevent
+attendance fraud.
+
+Flutter map
+
+Displays interactive maps in the application.
+
+Open Street Map
+
+Provides map data for location and
+geofencing features.
+
+Firebase Cloud Messaging
+
+Sends push notifications to users. (Does not
+send email notifications.)
+
+Vercel Hosting
+
+Hosts the web dashboard online.
+
+JWT
+
+Secures user authentication and API access.
+
+8.3 Hardware Interface Requirements
+​
+
+The Hardware interface requirements specifies the hardware/physical devices
+
+used and needed to interact with the software requirements.
+
+Hardware
+
+Purpose
+
+WebCam
+
+For face recognition and for employee
+registration.
+
+Computer/Laptop
+
+For monitoring reports, employees and
+for attendance checking.
+
+Phone
+
+For user interaction.
+
+8.4. External Interface Requirements
+External Interfaces describes how proposed systems exchange information with
+external systems, organization, and services.
+External Interface
+Third Party APIs
+
+Purpose
+Integrates with external APIs, platforms,
+and services.
+
+8.5. API Integration
+This Application Programming Interface (API) describes the external and backend
+service APIs integrated into the proposed system to handle authentication, real-time
+messaging, spatial querying, cloud storage, and push notifications.
+
+●​ Supabase REST API
+●​ Firebase FCM API
+●​ PostGIS Spatial Queries
+●​ JWT Authentication
+●​ Supabase Storage
+●​ Supabase Realtime
+
+9. Data Requirements
+9.1 Database Overview
+​
+
+The BantayGawaMobile database stores and manages all system data,
+
+including user accounts, work areas, attendance records, accomplishment proofs,
+leave requests, credit scores, notifications, alerts, and system logs. The database uses
+PostgreSQL, a reliable relational database system, with additional support for
+location-based data such as work area boundaries and GPS coordinates. Data is
+organized into fifteen main tables that cover user management (Users, Roles,
+Schedules), workforce operations (WorkAreas, WorkAreaAssignments, Attendance,
+LocationTracking, Accomplishments, CreditBalance, CreditHistory), and workflow
+management (LeaveRequests, Notifications, Alerts, WorkerReports, AuditLogs).
+When workers are offline, their attendance and proof submissions are saved locally on
+their mobile device using SQLite and automatically uploaded to the cloud database
+once internet connectivity is restored. Images submitted as proof of work are stored
+securely in the cloud with their metadata (date, time, location) extracted and saved in
+the database for easy searching and reporting. The database uses security rules to
+ensure that users can only access data they are authorized to view—workers see only
+their own records, supervisors see records for their assigned areas, and the admin has
+full access. This design ensures that the system remains reliable and accurate whether
+workers are online or offline.
+
+Entity Relationship Diagram - ERD
+
+9.2 Entities and Attributes
+​
+
+An Entity represents a person, events, place, real world object, or concept
+
+which is the data being stored.
+USERS
+user_id
+
+A unique identifier for each user (linked to
+Supabase auth)
+
+username
+
+A unique username for login
+
+first_name
+
+The employee's first name
+
+last_name
+
+The employee's last name
+
+contact_number
+
+The employee's contact information
+
+qr_token
+
+A unique, regeneratable token for QR code
+login
+
+role_id
+
+A foreign key referencing the Roles table
+
+face_embedding
+
+A facial recognition feature vector (stored
+during registration)
+
+status
+
+The account status (active, inactive, pending)
+
+created_at
+
+The account creation timestamp
+
+updated_at
+
+The last update timestamp
+
+ROLES
+role_id
+
+A unique identifier for each role
+
+name
+
+The role name (e.g., Admin, Field
+Supervisor, Field Worker)
+
+description
+
+A brief description of role permissions
+
+WORK_AREAS
+workarea_id
+
+A unique identifier for each work area
+
+name
+
+The name of the work area
+
+geometry
+
+A PostGIS polygon defining the geofence
+boundary
+
+supervisor_id
+
+A foreign key referencing the supervisor
+assigned to the area
+
+description
+
+An optional description of the work area
+
+created_at
+
+The creation timestamp
+
+updated_at
+
+The last update timestamp
+
+WORK_AREA_ASSIGNMENTS
+assignment_id
+
+A unique identifier for each assignment
+
+workarea_id
+
+A foreign key referencing the WorkAreas
+table
+
+user_id
+
+A foreign key referencing the Field Worker
+assigned
+
+assigned_at
+
+The date and time of the assignment
+
+is_active
+
+A flag indicating if the assignment is
+currently active
+
+ATTENDANCE
+attendance_id
+
+A unique identifier for each attendance
+record
+
+user_id
+
+A foreign key referencing the Users table
+
+workarea_id
+
+A foreign key referencing the WorkAreas
+table
+
+action_type
+
+The type of action (time-in, break-in,
+
+break-out, time-out)
+timestamp
+
+The exact time of the attendance action
+
+gps_lat
+
+The GPS latitude at the attendance time
+
+gps_lng
+
+The GPS longitude at the attendance time
+
+image_url
+
+A URL to the selfie proof image
+
+face_match
+
+A boolean indicating if facial recognition
+was successful
+
+is_synced
+
+A boolean indicating the offline sync status
+
+created_at
+
+The record creation timestamp
+
+LOCATION_TRACKING
+location_id
+
+A unique identifier for each location record
+
+user_id
+
+A foreign key referencing the Users table
+
+attendance_id
+
+A foreign key referencing the active
+Attendance session
+
+gps_lat
+
+The GPS latitude at the tracking point
+
+gps_lng
+
+The GPS longitude at the tracking point
+
+timestamp
+
+The exact time the location was captured
+
+is_last_seen
+
+Marks the last location before leaving a
+geofence (for breach detection)
+
+created_at
+
+The record creation timestamp
+
+ACCOMPLISHMENTS
+accomplishment_id
+
+A unique identifier for each
+accomplishment report
+
+user_id
+
+A foreign key referencing the submitting
+Field Worker
+
+workarea_id
+
+A foreign key referencing the WorkAreas
+
+table
+image_url
+
+A URL to the work proof image
+
+captured_date
+
+The date the image was captured (extracted
+from metadata)
+
+captured_time
+
+The time the image was captured (extracted
+from metadata)
+
+captured_lat
+
+The GPS latitude extracted from image
+metadata
+
+captured_lng
+
+The GPS longitude extracted from image
+metadata
+
+message
+
+An optional message provided by the
+worker
+
+status
+
+The report status (pending, approved,
+denied)
+
+approved_by
+
+A foreign key referencing the Admin or
+Supervisor who approved it
+
+approved_at
+
+The timestamp of approval
+
+rejection_reason
+
+The reason provided if the report was
+denied
+
+is_synced
+
+A boolean indicating the offline sync status
+
+created_at
+
+The submission timestamp
+
+LEAVE_REQUESTS
+leave_id
+
+A unique identifier for each leave request
+
+user_id
+
+A foreign key referencing the requesting
+worker
+
+type
+
+The type of leave (emergency, sick,
+vacation, other)
+
+start_date
+
+The starting date of the leave
+
+end_date
+
+The ending date of the leave
+
+reason
+
+The stated reason for the leave
+
+image_url
+
+A URL to an optional proof image (e.g.,
+medical certificate)
+
+status
+
+The request status (pending, approved,
+denied)
+
+admin_decision
+
+A foreign key referencing the Admin who
+made the decision
+
+decision_at
+
+The timestamp of the decision
+
+is_synced
+
+A boolean indicating the offline sync status
+
+created_at
+
+The submission timestamp
+
+CREDIT_BALANCE
+balance_id
+
+A unique identifier for the credit balance
+
+user_id
+
+A foreign key referencing the Users table
+
+current_score
+
+The current credit score
+
+updated_at
+
+The last update timestamp
+
+CREDIT_HISTORY
+history_id
+
+A unique identifier for each credit
+transaction
+
+user_id
+
+A foreign key referencing the Users table
+
+change_amount
+
+The number of points added or deducted
+
+reason
+
+The reason for the change in points
+
+created_at
+
+The transaction timestamp
+
+NOTIFICATIONS
+
+notification_id
+
+A unique identifier for each notification
+
+sender_id
+
+A foreign key referencing the sender
+
+receiver_id
+
+A foreign key referencing the receiver
+
+message
+
+The content of the notification
+
+type
+
+The notification type (announcement,
+confidential, alert)
+
+is_read
+
+The read status of the notification
+
+sent_at
+
+The timestamp when the notification was
+sent
+
+ALERTS
+alert_id
+
+A unique identifier for each system alert
+
+user_id
+
+A foreign key referencing the affected
+worker
+
+type
+
+The alert type
+
+message
+
+The alert message
+
+created_at
+
+The alert generation timestamp
+
+resolved_at
+
+The timestamp when the alert was resolved
+
+resolved_by
+
+A foreign key referencing the Admin who
+resolved the alert
+
+WORKER_REPORTS
+report_id
+
+A unique identifier for each worker incident
+report
+
+reporter_id
+
+A foreign key referencing the user who
+submitted the report
+
+reported_id
+
+A foreign key referencing the user being
+reported
+
+issue_type
+
+The type of issue reported
+
+description
+
+A detailed description of the issue
+
+image_url
+
+A URL to an optional proof image
+
+status
+
+The report status
+
+created_at
+
+The report submission timestamp
+
+SCHEDULES
+schedule_id
+
+A unique identifier for each shift schedule
+
+user_id
+
+A foreign key referencing the Users table
+
+start_time
+
+The starting time of the shift
+
+end_time
+
+The ending time of the shift
+
+days
+
+A comma-separated list of working days
+
+created_at
+
+The schedule creation timestamp
+
+AUDIT_LOGS
+log_id
+
+A unique identifier for each audit log entry
+
+user_id
+
+A foreign key referencing the user who
+performed the action
+
+action
+
+The type of action
+
+table_name
+
+The name of the affected database table
+
+record_id
+
+The UUID of the affected record
+
+old_values
+
+The previous values of the record
+
+new_values
+
+The new values of the record
+
+created_at
+
+The timestamp of the action
+
+9.3 Relationship Between Entities
+​
+
+Relationship describes how entities interact within the database.
+1.​ Users and Roles (Many-to-One)
+●​ Each user is assigned exactly one role (e.g., Admin, Supervisor,
+Worker).
+●​ A specific role can be held by many users.
+●​ Foreign Key Constraint: Users.role_id references Roles.role_id
+
+2.​ Users and Work Areas [Supervisor] (One-to-Many)
+●​ A Field Supervisor can be assigned to oversee multiple work areas.
+●​ A single work area has exactly one designated Field Supervisor.
+●​ Foreign
+
+Key
+
+Constraint:
+
+WorkAreas.supervisor_id
+
+references
+
+Users.user_id
+
+3.​ Users and Work Area Assignments (One-to-Many
+●​ A Field Worker can have multiple assignment records over time (to
+track historical reassignments).
+●​ A specific assignment record belongs to exactly one user.
+●​ Foreign Key Constraint: WorkAreaAssignments.user_id references
+Users.user_id
+
+4.​ Work Areas and Work Area Assignments (One-to-Many)
+●​ A work area can have many workers assigned to it simultaneously.
+●​ A specific assignment record belongs to exactly one work area.
+●​ Foreign Key Constraint: WorkAreaAssignments.workarea_id references
+WorkAreas.workarea_id
+
+5.​ Users and Attendance (One-to-Many)
+●​ A user can have many attendance records throughout their employment.
+●​ An attendance record belongs to exactly one user.
+●​ Foreign Key Constraint: Attendance.user_id references Users.user_id
+
+6.​ Work Areas and Attendance (One-to-Many)
+●​ A work area can contain many attendance records logged by various
+workers.
+●​ An attendance record is captured inside exactly one work area.
+●​ Foreign
+
+Key
+
+Constraint:
+
+Attendance.workarea_id
+
+references
+
+WorkAreas.workarea_id
+
+7.​ Users and Location Tracking (One-to-Many)
+●​ A user can have many location tracking coordinate records generated
+over time.
+●​ A location tracking record belongs to exactly one user.
+●​ Foreign
+
+Key
+
+Constraint:
+
+LocationTracking.user_id
+
+references
+
+Users.user_id
+
+8.​ Attendance and Location Tracking (One-to-Many)
+●​ An active attendance session (e.g., between time-in and time-out)
+generates many continuous location tracking points.
+●​ A location tracking record is tied to exactly one active attendance
+session.
+●​ Foreign Key Constraint: LocationTracking.attendance_id references
+Attendance.attendance_id
+
+9.​ Users and Accomplishments (One-to-Many)
+●​ A Field Worker can submit multiple accomplishment proof reports.
+●​ An accomplishment report is submitted by exactly one user.
+●​ Foreign
+
+Key
+
+Constraint:
+
+Accomplishments.user_id
+
+references
+
+Users.user_id
+
+10.​ Work Areas and Accomplishments (One-to-Many)
+●​ A work area can contain many submitted accomplishment reports.
+●​ An accomplishment report is submitted within exactly one work area.
+●​ Foreign Key Constraint: Accomplishments.workarea_id references
+WorkAreas.workarea_id
+
+11.​Users and Accomplishments [Approval] (One-to-Many)
+●​ An Admin or Field Supervisor can approve many accomplishment
+reports.
+●​ An accomplishment report is approved by exactly one Admin or
+Supervisor.
+●​ Foreign Key Constraint: Accomplishments.approved_by references
+Users.user_id
+
+12.​Users and Leave Requests (One-to-Many)
+●​ A user can submit multiple leave requests.
+●​ A leave request belongs to exactly one user.
+●​ Foreign
+
+Key
+
+Constraint:
+
+LeaveRequests.user_id
+
+Users.user_id
+
+13.​Users and Leave Requests [Decision] (One-to-Many)
+
+references
+
+●​ An Admin can decide on (approve or deny) many leave requests.
+●​ A leave request is decided by exactly one specific Admin.
+●​ Foreign Key Constraint: LeaveRequests.admin_decision references
+Users.user_id
+
+14.​Users and Credit Balance (One-to-One)
+●​ Each user has exactly one active current credit balance/score.
+●​ Foreign Key Constraint: CreditBalance.user_id references Users.user_id
+
+15.​Users and Credit History (One-to-Many)
+●​ A user can have many credit transaction history records (points added or
+deducted).
+●​ A credit history transaction belongs to exactly one user.
+●​ Foreign Key Constraint: CreditHistory.user_id references Users.user_id
+
+16.​Users and Notifications [Sender] (One-to-Many)
+●​ A user (typically an Admin) can send many notifications.
+●​ A specific notification is sent by exactly one user.
+●​ Foreign
+
+Key
+
+Constraint:
+
+Notifications.sender_id
+
+references
+
+Users.user_id
+
+17.​Users and Notifications [Receiver] (One-to-Many)
+●​ A user can receive many notifications.
+●​ A specific notification is received by exactly one user.
+●​ Foreign
+
+Key
+
+Users.user_id
+
+Constraint:
+
+Notifications.receiver_id
+
+references
+
+18.​Users and Alerts (One-to-Many)
+●​ A user's actions (e.g., consecutive absences) can trigger multiple system
+alerts.
+●​ An alert is triggered for exactly one specific user.
+●​ Foreign Key Constraint: Alerts.user_id references Users.user_id
+
+19.​Users and Alerts [Resolution] (One-to-Many)
+●​ An Admin can resolve many system alerts.
+●​ An alert is resolved by exactly one specific Admin.
+●​ Foreign Key Constraint: Alerts.resolved_by references Users.user_id
+
+20.​Users and Worker Reports [Reporter] (One-to-Many)
+●​ A user can submit many incident reports about other workers.
+●​ An incident report is submitted by exactly one user.
+●​ Foreign
+
+Key
+
+Constraint:
+
+WorkerReports.reporter_id
+
+references
+
+Users.user_id
+
+21.​ Users and Worker Reports [Reported] (One-to-Many)
+●​ A user can be reported multiple times by different peers or supervisors.
+●​ An incident report targets exactly one specific user.
+●​ Foreign
+
+Key
+
+Constraint:
+
+WorkerReports.reported_id
+
+references
+
+Users.user_id
+
+22.​Users and Schedules (One-to-Many)
+●​ A user can have multiple shift schedules over time (for historical
+tracking of shift changes).
+●​ A schedule record belongs to exactly one user.
+
+●​ Foreign Key Constraint: Schedules.user_id references Users.user_id
+
+23.​Users and Audit Logs (One-to-Many)
+●​ A user (Admin or Supervisor) can generate many audit log entries based
+on their actions within the system.
+●​ An audit log entry records the action of exactly one user.
+●​ Foreign Key Constraint: AuditLogs.user_id references Users.user_id
+
+9.4 Database Normalization
+​
+
+The database for the BantayGawaMobile system has been designed and
+
+normalized up to the Third Normal Form (3NF). Database normalization is a
+systematic approach to organizing tables and columns to reduce data redundancy,
+improve data integrity, and prevent insert, update, and delete anomalies.
+The system adheres to the following normalization stages:
+1.​ First Normal Form (1NF) - Elimination of Repeating Groups To satisfy 1NF,
+every attribute in the database holds only atomic (indivisible) values, and each
+record is unique. There are no repeating groups or arrays of data stored within a
+single column.
+●​ Application in the System: Instead of storing a comma-separated list of
+assigned work areas directly inside the Users table, a dedicated junction
+table (WorkAreaAssignments) was created. This ensures that every
+assignment is a distinct, atomic record mapping one user to one work
+area at a time.
+
+2.​ Second Normal Form (2NF) - Elimination of Partial Dependencies To satisfy
+2NF, the database must first be in 1NF, and all non-key attributes must be fully
+functionally dependent on the primary key.
+
+●​ Application in the System: The system inherently satisfies 2NF by
+utilizing single-column, unique surrogate keys (UUIDs) such as user_id,
+attendance_id, and workarea_id as the Primary Keys for every table.
+Because composite primary keys are avoided, there are no partial
+dependencies; every attribute in a table relies entirely on the single
+primary key of that table.
+
+3.​ Third Normal Form (3NF) - Elimination of Transitive Dependencies To satisfy
+3NF, the database must be in 2NF, and there must be no transitive
+dependencies. This means that a non-key attribute must not depend on another
+non-key attribute; it must depend only on the primary key.
+●​ Application
+
+in the System: The system eliminates transitive
+
+dependencies through proper table relationships and Foreign Keys. For
+example, rather than storing a user's role name (e.g., "Field Supervisor")
+and role description directly inside the Users table, which would create a
+transitive dependency on the role_id, this data is separated into an
+independent Roles table. The Users table only stores the role_id as a
+Foreign Key. This ensures that if a role's description changes, it only
+needs to be updated in one place, preventing data inconsistency.
+
+9.5 Data Dictionary
+​
+
+The Data Dictionary defines all fields stored in the system's database. It details
+
+field, data types,length, and field descriptions. This serves as a guide for developers,
+database administrators, and testers to ensure data consistency.
+USERS
+Field
+
+Data Type
+
+Length
+
+Description
+
+user_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+username
+
+VARCHAR
+
+50
+
+Unique username for
+login
+
+first_name
+
+VARCHAR
+
+100
+
+The employee's first
+name
+
+last_name
+
+VARCHAR
+
+100
+
+The employee's last
+name
+
+contact_number
+
+VARCHAR
+
+20
+
+The employee's
+contact number
+
+qr_token
+
+VARCHAR
+
+100
+
+Unique, regeneratable
+token for QR code
+login
+
+role_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+ROLES table
+
+face_embedding
+
+TEXT
+
+N/A
+
+Facial recognition
+feature vector string
+
+status
+
+VARCHAR
+
+20
+
+Account status
+(active, inactive,
+pending)
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+Timestamp when the
+account was created
+
+updated_at
+
+TIMESTAMP
+
+8 bytes
+
+Timestamp when the
+account was last
+updated
+
+ROLES
+Field
+
+Data Type
+
+Length
+
+Description
+
+role_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+name
+
+VARCHAR
+
+50
+
+The role name
+(Admin, Supervisor,
+Worker)
+
+description
+
+TEXT
+
+N/A
+
+A brief description
+of role permissions
+
+WORK_AREAS
+Field
+
+Data Type
+
+Length
+
+Description
+
+workarea_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+name
+
+VARCHAR
+
+100
+
+The name of the
+work area
+
+geometry
+
+GEOMETRY
+
+N/A
+
+PostGIS polygon
+defining the
+geofence boundary
+
+supervisor_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+assigned Supervisor
+
+description
+
+TEXT
+
+N/A
+
+An optional
+description of the
+work area
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The creation
+timestamp
+
+updated_at
+
+TIMESTAMP
+
+8 bytes
+
+The last update
+timestamp
+
+WORK_AREA_ASSIGNMENTS
+Field
+
+Data Type
+
+Length
+
+Description
+
+assignment_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+workarea_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+WORK_AREAS
+table
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+assigned Field
+Worker
+
+assigned_at
+
+TIMESTAMP
+
+8 bytes
+
+The exact date and
+time of the
+
+assignment
+is_active
+
+BOOLEAN
+
+1 byte
+
+A flag indicating if
+the assignment is
+currently active
+
+ATTENDANCE
+Field
+
+Data Type
+
+Length
+
+Description
+
+attendance_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+USERS table
+
+workarea_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+WORK_AREAS
+table
+
+action_type
+
+VARCHAR
+
+20
+
+Action type
+
+timestamp
+
+TIMESTAMP
+
+8 bytes
+
+The exact time of
+the attendance
+action
+
+gps_lat
+
+FLOAT8
+
+8 bytes
+
+The GPS latitude at
+the attendance time
+
+gps_lng
+
+FLOAT8
+
+8 bytes
+
+The GPS longitude
+at the attendance
+time
+
+image_url
+
+TEXT
+
+N/A
+
+URL to the captured
+selfie proof image
+
+face_match
+
+BOOLEAN
+
+1 byte
+
+Indicates if
+on-device facial
+recognition matched
+
+is_synced
+
+BOOLEAN
+
+1 byte
+
+Indicates if the
+offline record has
+synced to the server
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The record creation
+timestamp
+
+LOCATION_TRACKING
+Field
+
+Data Type
+
+Length
+
+Description
+
+location_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+USERS table
+
+attendance_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+active
+ATTENDANCE
+session
+
+gps_lat
+
+FLOAT8
+
+8 bytes
+
+The GPS latitude at
+the tracking point
+
+gps_lng
+
+FLOAT8
+
+8 bytes
+
+The GPS longitude
+at the tracking point
+
+timestamp
+
+TIMESTAMP
+
+8 bytes
+
+The exact time the
+location coordinates
+were captured
+
+is_last_seen
+
+BOOLEAN
+
+1 byte
+
+Marks the last
+location before a
+geofence breach
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The record creation
+timestamp
+
+ACCOMPLISHMENTS
+Field
+
+Data Type
+
+Length
+
+Description
+
+accomplishment_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+submitting Field
+Worker
+
+workarea_id
+
+UUID
+
+36 chars
+
+Foreign Key
+
+referencing the
+WORK_AREAS
+table
+image_url
+
+TEXT
+
+N/A
+
+URL to the work
+proof image
+
+captured_date
+
+DATE
+
+4 bytes
+
+The date the image
+was captured (from
+image metadata)
+
+captured_time
+
+TIME
+
+8 bytes
+
+The time the image
+was captured (from
+image metadata)
+
+captured_lat
+
+FLOAT8
+
+8 bytes
+
+GPS latitude
+extracted from
+image metadata
+
+captured_lng
+
+FLOAT8
+
+8 bytes
+
+GPS longitude
+extracted from
+image metadata
+
+message
+
+TEXT
+
+N/A
+
+An optional
+accomplishment
+message from the
+worker
+
+status
+
+VARCHAR
+
+20
+
+The report status
+(pending, approved,
+denied)
+
+approved_by
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+Admin/Supervisor
+who approved
+
+approved_at
+
+TIMESTAMP
+
+8 bytes
+
+The timestamp when
+the report was
+approved or denied
+
+rejection_reason
+
+TEXT
+
+N/A
+
+The reason provided
+if the report was
+denied
+
+is_synced
+
+BOOLEAN
+
+1 byte
+
+Indicates if the
+offline record has
+synced to the server
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The submission
+timestamp
+
+LEAVE_REQUESTS
+Field
+
+Data Type
+
+Length
+
+Description
+
+leave_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+requesting worker
+
+type
+
+VARCHAR
+
+50
+
+The type of leave
+(emergency, sick,
+vacation, other)
+
+start_date
+
+DATE
+
+4 bytes
+
+The starting date of
+the leave request
+
+end_date
+
+DATE
+
+4 bytes
+
+The ending date of
+the leave request
+
+reason
+
+TEXT
+
+N/A
+
+The stated reason for
+the leave
+
+image_url
+
+TEXT
+
+N/A
+
+URL to an optional
+proof image (e.g.,
+medical certificate)
+
+status
+
+VARCHAR
+
+20
+
+The request status
+(pending, approved,
+denied)
+
+admin_decision
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+Admin who made
+the decision
+
+decision_at
+
+TIMESTAMP
+
+8 bytes
+
+The timestamp of
+the approval/denial
+decision
+
+is_synced
+
+BOOLEAN
+
+1 byte
+
+Indicates if the
+offline record has
+synced to the server
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The submission
+timestamp
+
+CREDIT_BALANCE
+Field
+
+Data Type
+
+Length
+
+Description
+
+balance_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+USERS table
+
+current_score
+
+INTEGER
+
+4 bytes
+
+The current
+performance credit
+score
+
+updated_at
+
+TIMESTAMP
+
+8 bytes
+
+The last update
+timestamp
+
+CREDIT_HISTORY
+Field
+
+Data Type
+
+Length
+
+Description
+
+history_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+USERS table
+
+change_amount
+
+INTEGER
+
+4 bytes
+
+The number of
+points added or
+deducted
+
+reason
+
+VARCHAR
+
+255
+
+The reason for the
+change in points
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The transaction
+timestamp
+
+NOTIFICATIONS
+
+Field
+
+Data Type
+
+Length
+
+Description
+
+notification_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+sender_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+sender
+
+receiver_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+receiver
+
+message
+
+TEXT
+
+N/A
+
+The content of the
+notification
+
+type
+
+VARCHAR
+
+50
+
+The notification type
+(announcement,
+confidential, alert)
+
+is_read
+
+BOOLEAN
+
+1 byte
+
+A flag indicating if
+the notification has
+been read
+
+sent_at
+
+TIMESTAMP
+
+8 bytes
+
+The timestamp when
+the notification was
+sent
+
+ALERTS
+Field
+
+Data Type
+
+Length
+
+Description
+
+alert_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+affected worker
+
+type
+
+VARCHAR
+
+50
+
+Alert type
+
+message
+
+TEXT
+
+N/A
+
+The alert message
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The alert generation
+timestamp
+
+resolved_at
+
+TIMESTAMP
+
+8 bytes
+
+The timestamp when
+the alert was
+resolved
+
+resolved_by
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+
+Admin who resolved
+the alert
+
+WORKER_REPORTS
+Field
+
+Data Type
+
+Length
+
+Description
+
+report_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+reporter_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the user
+who submitted the
+report
+
+reported_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the user
+being reported
+
+issue_type
+
+VARCHAR
+
+100
+
+The type of issue
+reported
+
+description
+
+TEXT
+
+N/A
+
+A detailed
+description of the
+issue
+
+image_url
+
+TEXT
+
+N/A
+
+URL to an optional
+proof image
+
+status
+
+VARCHAR
+
+20
+
+The report status
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The report
+submission
+timestamp
+
+SCHEDULES
+Field
+
+Data Type
+
+Length
+
+Description
+
+schedule_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the
+USERS table
+
+start_time
+
+TIME
+
+8 bytes
+
+The starting time of
+the shift
+
+end_time
+
+TIME
+
+8 bytes
+
+The ending time of
+the shift
+
+days
+
+VARCHAR
+
+50
+
+Comma-separated
+list of working days
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The schedule
+creation timestamp
+
+AUDIT_LOGS
+Field
+
+Data Type
+
+Length
+
+Description
+
+log_id
+
+UUID
+
+36 chars
+
+Primary Key
+
+user_id
+
+UUID
+
+36 chars
+
+Foreign Key
+referencing the user
+who performed the
+action
+
+action
+
+VARCHAR
+
+20
+
+The type of action
+
+table_name
+
+VARCHAR
+
+50
+
+The name of the
+affected database
+table
+
+record_id
+
+UUID
+
+36 chars
+
+The UUID of the
+affected record
+
+old_values
+
+JSONB
+
+N/A
+
+The previous values
+of the record
+
+new_values
+
+JSONB
+
+N/A
+
+The new values of
+the record (stored as
+JSON)
+
+created_at
+
+TIMESTAMP
+
+8 bytes
+
+The timestamp of
+the action
+
+9.6 Data Integrity Rules
+​
+
+The database enforces several integrity rules to ensure data accuracy,
+
+consistency, and reliability. Every record has a unique ID to prevent duplicates and
+ensure each record can be referenced correctly. When one table references another, the
+database checks that the referenced record exists, preventing orphaned records. Fields
+are restricted to specific values—for example, attendance actions can only be time-in,
+break-in, break-out, or time-out, and status fields can only be active, inactive, or
+pending. Critical fields such as user ID, timestamps, and GPS coordinates cannot be
+left empty. Attendance logging is only allowed when the worker's GPS location is
+inside their assigned work area, and facial recognition must match the registered face
+before attendance is recorded. Records created offline are marked as "not synced"
+until successfully uploaded to the cloud, preventing data loss or duplication. All
+create, update, and delete actions are logged for accountability and review. Credit
+scores are automatically updated based on attendance and approved accomplishments,
+with no deductions for approved leaves, and point amounts are configurable by the
+admin. These rules work together to keep the database clean, reliable, and trustworthy
+across both online and offline operations.
+9.7 Backup and Recovery Strategy
+​
+
+To ensure data integrity and guarantee business continuity in the event of
+
+system failure or data corruption, the system employs an automated, routine backup
+mechanism orchestrated through GitHub Actions. A scheduled CI/CD workflow (cron
+job) is configured to execute on a weekly basis, automatically triggering a secure
+extraction of the database schema and its records. Once the automated pipeline
+generates the database dump, the backup artifact is securely archived, creating a
+reliable, point-in-time snapshot of the system's data. By automating this process via
+GitHub Actions, the system eliminates the risk of human error associated with manual
+backups and ensures that a recent, stable version of the database is consistently
+available. In a disaster recovery scenario, administrators can rapidly retrieve and
+restore these automated backups, thereby minimizing potential downtime and
+preventing catastrophic data loss.
+
+10. Testing Strategy
+10.1 Testing Overview
+The testing strategy defines the structured approach for verifying and validating the
+BantayGawaMobile before deployment. It ensures that the system satisfies its functional
+requirements and non-functional quality attributes while identifying and resolving defects
+throughout the development process.
+The test shall conducted across the following levels:
+●​ Unit Testing: Verifies the functionality of individual components and modules in
+isolation, such as QR code authentication, attendance logging, facial recognition
+validation, geofence validation, leave request processing, and accomplishment report
+submission.
+●​ Integration Testing: Verifies that different modules interact correctly with one
+another. This includes validating the integration between QR code login and user
+authentication, attendance logging with facial recognition and geofence validation,
+accomplishment reports with proof image uploads, and report generation using
+attendance records.
+●​ System Testing: Verifies that the complete BantayGawaMobile system satisfies all
+functional requirements and business rules specified in this Software Requirements
+Specification. This includes validating role-based access for the Admin, Field
+Supervisor, and Field Worker, attendance workflows, leave management,
+accomplishment reporting, GIS workforce monitoring, and notification services.
+●​ User Acceptance Testing (UAT): Conducted with representative users, including the
+Admin, Field Supervisors, and Field Workers, to ensure that the system meets the
+operational requirements of workforce attendance monitoring and field workforce
+management.
+
+Table xx. Test Case Table
+Test
+Case ID
+TC-01
+
+Test Objective
+Verify that a
+registered user can
+log in using a QR
+code.
+
+Test Steps
+
+Expected
+Results
+
+1. Open the application.
+2. Scan a valid QR code.
+3. Authenticate
+successfully.
+
+User
+is
+successfully
+logged in and
+redirected to the
+dashboard.
+Session remains
+active for future
+use.
+
+Status
+
+TC-02
+
+Verify attendance
+logging using facial
+recognition and
+geofence validation.
+
+1. Log in as a Field
+Worker.
+2. Tap Log Attendance.
+3. Capture a selfie.
+4. Allow GPS access.
+
+Attendance is
+recorded with
+timestamp, GPS
+coordinates, and
+selfie.
+Confirmation
+message
+is
+displayed.
+
+TC-03
+
+Verify that attendance
+is rejected outside the
+designated work area.
+
+1. Log in as a Field
+Worker.
+2. Move outside the
+assigned geofence.
+3. Attempt to log
+attendance.
+
+System displays
+"Outside
+geofence" error
+message
+and
+prevents
+attendance
+logging.
+
+TC-04
+
+Verify
+accomplishment
+report submission
+with a proof image.
+
+1. Log in as a Field
+Worker.
+2. Open Submit
+Accomplishment
+Report.
+3. Attach a proof image.
+4. Submit.
+
+Report
+is
+submitted
+successfully
+with
+status
+"Pending."
+Image contains
+embedded date,
+time,
+and
+location
+metadata.
+
+TC-05
+
+Verify leave request
+submission.
+
+1. Log in as a Field
+Worker.
+2. Open Request Leave.
+3. Fill in the required
+information.
+4. Submit.
+
+Leave request is
+submitted with
+status
+"Pending."
+Supervisor and
+Admin receive
+notifications.
+
+TC-06
+
+Verify leave request
+approval by the
+Admin.
+
+1. Log in as Admin.
+2. Open pending leave
+requests.
+3. Approve a request.
+
+Leave request
+status changes
+to "Approved."
+Worker
+and
+Supervisor
+receive
+notifications.
+
+TC-07
+
+Verify workforce
+monitoring by the
+Field Supervisor.
+
+1. Log in as Field
+Supervisor.
+2. Open the GIS
+Workforce Map.
+
+Map
+displays
+real-time
+worker
+locations
+and
+attendance
+status
+for
+
+assigned areas
+only. Geofence
+boundaries are
+visible.
+TC-08
+
+Verify report
+generation.
+
+1. Log in as Admin.
+2. Select Generate
+Reports.
+3. Choose a date range.
+4. Generate the report.
+
+Report
+is
+generated and
+displayed
+as
+preview. User
+can export as
+PDF or Excel.
+
+TC-09
+
+Verify notification
+delivery.
+
+1. Admin sends a
+notification.
+2. Field Worker opens
+the application.
+
+Notification
+appears in the
+worker's inbox
+within
+5
+seconds.
+Notification is
+marked as read
+after viewing.
+
+TC-10
+
+Verify role-based
+access control.
+
+1. Log in as a Field
+Worker.
+2. Attempt to access the
+Manage Users module.
+
+System displays
+"Access
+Denied"
+or
+hides
+the
+module
+completely.
+Worker cannot
+perform admin
+actions.
+
+11. Acceptance Criteria
+
+REQUIREMENT
+
+ACCEPTANCE CRITERIA
+
+User Authentication & Role-Based Access
+
+●​ The system shall allow Field
+Workers to complete their first-time
+login by scanning a unique QR code
+on their ID card, successfully
+authenticating and storing the
+session persistently.
+●​ The system shall enforce mandatory
+Multi-Factor Authentication (MFA)
+for Admin and Field Supervisor
+logins by sending a time-sensitive
+OTP to the registered email upon
+entering valid primary credentials.
+●​ The system shall grant access to the
+Admin Web Dashboard within ≤ 3
+seconds following valid OTP entry.
+●​ The system shall terminate active
+sessions automatically after 30
+minutes of inactivity.
+●​ The system shall restrict access to
+features based on user roles (Admin,
+Field Supervisor, Field Worker),
+ensuring that a Field Worker cannot
+access administrative management
+modules.
+
+Workforce Profile & Geofence Management
+
+●​ The Admin shall be able to create,
+edit, and delete user accounts,
+assigning roles and registering a
+worker's face during the account
+creation process.
+●​ The Admin shall be able to create
+work areas on an interactive map
+using polygon geofencing to define
+irregular area boundaries.
+●​ The Admin shall be able to assign
+Field Workers and Field Supervisors
+to one or more work areas.
+●​ The system shall display a list of all
+employees filtered by work area for
+efficient management.
+
+Attendance Logging & Facial Recognition
+
+●​ The system shall allow a Field
+Worker to log attendance actions
+
+(Time-in,
+Break-in, Break-out,
+Time-out) only when the device's
+GPS coordinates are inside the
+assigned geofence boundary.
+●​ The system shall verify the worker's
+identity through on-device facial
+recognition (using MobileFaceNet)
+before logging attendance, blocking
+a photo or video spoof attempt.
+●​ The system shall capture a selfie,
+timestamp, and GPS coordinates for
+each attendance action, storing the
+selfie with embedded date, time, and
+location metadata.
+●​ The system shall record all
+attendance actions and provide a
+success/failure response within < 3
+seconds.
+Field Accomplishment Reporting
+
+●​ A Field Worker shall be able to
+submit an accomplishment report for
+their assigned area by capturing an
+image, which automatically embeds
+date, time, and GPS coordinates as
+both metadata and a visual overlay.
+●​ A Field Worker shall be able to
+submit
+an
+additional
+accomplishment report for a
+different work area by manually
+selecting it from a map.
+●​ A Field Supervisor shall be able to
+view, approve, or deny pending
+accomplishment reports submitted
+by workers in their assigned areas.
+●​ The system shall display a clear
+warning if the metadata extracted
+from the proof image does not match
+the assigned work area.
+
+Leave Request Management
+
+●​ A Field Worker shall be able to
+submit a leave request by specifying
+the type, start/end date, and reason,
+with an option to attach a proof
+image.
+●​ The system shall notify both the
+Field Supervisor and Admin when a
+new leave request is submitted.
+●​ An Admin shall be able to approve
+or deny pending leave requests, and
+the system shall require a reason for
+
+denial.
+●​ A Field Supervisor shall be able to
+view leave requests from workers in
+their assigned areas, even if they
+cannot approve them.
+Workforce Analytics & GIS Monitoring
+
+●​ The Admin and Field Supervisor
+shall be able to generate attendance
+and performance reports (Daily,
+Weekly, Monthly) filtered by date
+range, work area, and worker.
+●​ The system shall export generated
+reports in PDF and Excel formats,
+including the report title, generation
+date, and applied filters.
+●​ The system shall load the interactive
+GIS Workforce Map within ≤ 5
+seconds, displaying real-time worker
+locations, color-coded attendance
+status, and geofence overlays.
+●​ A Field Supervisor shall be able to
+view the GIS Map for their assigned
+areas only, while the Admin can
+view all areas.
+
+Notifications & Automated Alerts
+
+●​ The Admin shall be able to send
+in-app notifications to all users,
+specific roles, or specific users.
+●​ The Admin shall be able to send
+confidential notifications, which are
+visible only to the intended
+recipient.
+●​ The system shall automatically send
+a notification to the Admin,
+Supervisor, and the worker when a
+worker has 3 or more consecutive
+unexcused absences.
+●​ The system shall deliver push
+notifications within < 5 seconds.
+
+Offline Capability & Synchronization
+
+●​ A Field Worker shall be able to
+record attendance and capture
+accomplishment
+proof
+images
+without
+an
+active
+internet
+connection.
+●​ The system shall securely store
+offline attendance records and
+reports locally on the device using
+SQLite.
+●​ The system shall automatically
+
+detect when internet connectivity is
+restored and synchronize all pending
+offline data (attendance, reports,
+leave requests) within 1 minute.
+●​ The system shall ensure that no
+duplicate records are created during
+the automatic sync process.
+Usability & User Interface
+
+●​ The mobile application shall launch
+within < 5 seconds on devices
+running Android 7.0 and above.
+●​ The application shall provide clear
+visual confirmation for user actions
+(e.g., successful check-in) within 1
+second.
+●​ The user interface shall feature large
+touch targets (> 44dp) for mobile
+use and be responsive on devices
+with a minimum resolution of 360dp
+x 800dp.
+●​ The application shall support both
+English and Filipino languages with
+a language toggle feature.
+●​ An in-app tutorial shall be available
+for first-time users and should be
+completable in < 5 minutes.
+
+REFERENCES
+
+Fernandez, J. R., Aliac, N. M., & Malicdem, E. K. (2025). Facial and
+geofencing-based attendance tracking system for deployed personnel. Mindanao
+Journal of Science and Technology, 23(2), 133–148.
+https://mjst.ustp.edu.ph/index.php/mjst/article/view/2478
+
+Donesa, O. C. M., Butron, J., Aplan, C. M., & Moyon, E. S. (2025).
+AttendEase: Geolocation-based mobile application for attendance management.
+Proceedings of International Exchange and Innovation Conference on
+Engineering
+&
+Sciences
+(IEICES),
+11,
+596–601.
+https://doi.org/10.5109/7395575
+Katekar, O., & Gudage, A., & Kasar, P., & Kala, Y., & Khandagale, V. (2023).
+Location Based Attendance Tracking with Facial Recognition on Android.
+International Journal of Innovative Research in Technology (IJIRT), 10(6),
+43–46. https://ijirt.org/publishedpaper/IJIRT161761_PAPER.pdf
+
+APPENDICES
+Appendices A - Use Case Diagram
+
+Appendices B - System Architecture Diagram
+
+Target Users
+​
+
+The primary users of Bantay-Gawa Mobile are the stakeholders directly involved in
+
+workforce attendance monitoring and management within the Environment and Natural
+Resources (ENRO), namely: Field Workers, who record their attendance through geofencing
+and facial recognition, submit daily accomplishment reports, and receive work assignments
+and notifications; Field Supervisors, who monitor field personnel, validate attendance
+records, review accomplishment reports, assign tasks, and provide feedback; and the System
+Administrator, who manages employee profiles, user accounts, work zone assignments, shift
+schedules, attendance records, system configurations, and report generation. Each user is
+assigned specific access privileges based on their responsibilities to ensure secure and
+efficient system operations.
+
+Major Functions
+​
+
+Bantay-Gawa Mobile provides the following major functions: (1) an Employee
+
+Profile Management Module that maintains employee information, work zone assignments,
+shift schedules, and user accounts; (2) a Geofencing-Based Attendance Module that restricts
+attendance logging to authorized work locations using GPS coordinates; (3) a Real-Time
+Facial Recognition Module that verifies the identity of employees during attendance
+transactions to prevent proxy attendance; (4) a Mobile Attendance Module that records
+time-in, time-out, GPS location, timestamps, selfie images, and device information; (5) a
+Daily Accomplishment Reporting Module that enables field workers to submit completed
+tasks, supporting photos, remarks, and work locations; (6) a Supervisor Validation Module
+that allows supervisors to review attendance records, validate accomplishment reports, and
+provide observations or feedback; (7) a Workforce Analytics Module that generates
+attendance statistics, productivity reports, workforce utilization, and other analytical reports
+to support management decision-making; (8) a GIS Workforce Monitoring Module that
+displays employee locations, assigned work zones, attendance status, and completed
+assignments on an interactive map; (9) a Notification Module that sends attendance
+reminders, work assignments, schedule updates, and supervisor feedback; and (10) a User
+and Access Management Module that implements role-based access control for
+administrators, field supervisors, and field workers.
+
+Stakeholders
+​
+
+This section identifies the individuals who directly interact with or are affected by the
+
+proposed Bantay-Gawa Mobile system. These stakeholders represent the intended users
+identified during the requirements-gathering phase and serve as the basis for defining user
+roles, permissions, and system functionalities.
+
+Stakeholder
+
+Role
+
+Description
+
+System Administrator
+
+Administrator
+
+Manages user accounts, employee records, work
+zone assignments, shift schedules, attendance
+records, reports, and overall system configuration.
+Ensures the security, maintenance, and proper
+operation of the system.
+
+Field Supervisor
+
+Supervisor
+
+Monitors field personnel, validates attendance
+records, reviews accomplishment reports, assigns
+work, provides feedback, and tracks workforce
+performance within assigned work zones.
+
+Field Workers
+
+End User
+
+Records attendance through geofencing and facial
+recognition, submits accomplishment reports,
+receives work assignments and notifications, and
+views personal attendance history and work
+schedules.
+
+ASSUMPTIONS AND CONSTRAINTS
+Assumptions
+​
+
+It is assumed that the field workers who will use the proposed Bantay-Gawa Mobile
+
+system have access to personal Android smartphones (version 7.0 or higher) and possess the
+basic digital literacy necessary to operate a mobile application. The researchers also assume
+that although internet connectivity may occasionally be intermittent in some work locations,
+the system's offline capabilities will help minimize disruptions during attendance recording. It
+is assumed that GPS signals are available within designated work areas to support geofencing
+validation and accurate location verification.
+It is assumed that the Environment and Natural Resources (ENRO) has existing
+Human Resource (HR) or administrative personnel who will serve as system administrators,
+
+as well as designated field supervisors responsible for monitoring field workers and
+validating attendance records. The researchers also assume that the ENRO can define
+work-area geofences using available mapping data and will provide the necessary employee
+information and other initial records required for system setup. It is also assumed that
+employees are willing to use facial recognition as part of the attendance verification process
+and that all users will comply with applicable privacy and data protection policies governing
+the collection and processing of attendance information.
+
+Constraints
+​
+
+The development and implementation of Bantay-Gawa Mobile are subject to several
+
+limitations. The proposed system must be developed within the available budget of the Local
+Government Unit (LGU), making the use of open-source and cost-effective technologies
+necessary. The mobile application is intended to support Android devices running version 7.0
+or higher; therefore, older devices may not fully support certain features, particularly facial
+recognition. Since field personnel may work in areas with unstable internet connectivity, the
+system is designed to allow offline recording of core attendance functions, with
+synchronization occurring once a stable connection becomes available. In addition, the
+system must comply with the LGU's data retention and privacy policies, particularly in
+handling attendance records, GPS locations, and biometric information. To enhance data
+security, facial recognition data and other sensitive biometric information will be securely
+stored and managed in accordance with applicable privacy and data protection regulations.
+
+REQUIREMENT TRACIBILITY MATRIX
+​
+
+The Requirement Traceability Matrix (RTM) identifies the relationship between the
+
+study's objectives and the corresponding system requirements, use cases, and validation
+methods. It ensures that each requirement is properly addressed throughout the system's
+design, development, testing, and evaluation.
+
+Objective
+
+Requirement
+
+Use Case
+
+Validation Method
+
+Manage user
+authentication, user
+accounts, and
+role-based access for
+administrators,
+supervisors, and field
+workers
+
+FR-01, FR-02,
+FR-03, FR-05,
+FR-06, FR-07,
+FR-08, FR-09,
+FR-12
+
+UC-01, UC-10,
+UC-14, UC-15
+
+Functional testing of user
+authentication, account
+management, QR code
+generation, and QR login
+
+Manage work areas and
+enforce geofencing for
+authorized attendance
+locations
+
+FR-10, FR-11,
+FR-14, FR-15,
+FR-29
+
+UC-02, UC-08,
+UC-10
+
+Functional testing of work
+area creation, geofence
+configuration, and GIS
+visualization
+
+Verify employee
+FR-04, FR-15,
+attendance using facial
+FR-16, FR-17,
+recognition, geofencing, FR-33
+and attendance logging
+
+UC-15, UC-19,
+UC-20
+
+Functional testing of facial
+recognition, geofence
+validation, and attendance
+recording
+
+Allow field workers to
+submit accomplishment
+reports with supporting
+evidence
+
+FR-20, FR-22,
+FR-34
+
+UC-16, UC-21
+
+Functional and usability
+testing of accomplishment
+report submission and
+proof validation
+
+Enable supervisors and FR-19, FR-21
+administrators to review
+and approve submitted
+proofs and reports
+
+UC-04, UC-10,
+UC-11
+
+Functional testing of
+approval and validation
+workflows
+
+Support employee leave
+request management
+
+FR-23, FR-24
+
+UC-03, UC-13,
+UC-17
+
+Functional testing of leave
+request submission,
+review, approval, and
+denial
+
+Encourage employee
+FR-13, FR-25,
+accountability through a FR-36
+workforce credit system
+and attendance
+monitoring
+
+UC-09, UC-18,
+UC-19
+
+Functional testing of credit
+score computation,
+attendance monitoring, and
+absence alerts
+
+Notify users of
+important system
+activities and reminders
+
+FR-25
+
+UC-06, UC-09
+
+Functional testing of
+in-app notification delivery
+
+Generate attendance
+and workforce reports
+for monitoring and
+decision-making
+
+FR-18, FR-19,
+FR-26, FR-27,
+FR-32
+
+UC-05, UC-12,
+UC-13
+
+Functional testing of report
+generation and Excel/PDF
+export
+
+Monitor field workers
+through GIS mapping
+and real-time location
+tracking
+
+FR-28, FR-29,
+FR-30, FR-31
+
+UC-08, UC-10
+
+Functional testing of GIS
+monitoring and location
+tracking
+
+Ensure attendance and
+accomplishment
+reporting remain
+available during
+connectivity
+interruptions
+
+FR-33, FR-34,
+FR-35
+
+UC-19, UC-20,
+UC-21, UC-22
+
+Functional and integration
+testing of offline recording
+and automatic
+synchronization
+
+

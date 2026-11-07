@@ -18,6 +18,7 @@ abstract class DataRepository {
   // Users / Employees & Worker Assignments (UC-07)
   Future<List<UserModel>> getUsers({String? areaId, UserRole? role});
   Future<void> addUser(UserModel user);
+  Future<void> updateUserStatus(String userId, String status);
   Future<void> deleteUser(String userId);
   Future<void> assignWorkerToArea({
     required String workerId,
@@ -25,6 +26,13 @@ abstract class DataRepository {
     String? areaName,
   });
   Future<void> bulkAssignWorkers(Map<String, String?> assignments);
+  Future<void> updateWorkerSchedule({
+    required String workerId,
+    required String startTime,
+    required String endTime,
+    required String days,
+    String? areaName,
+  });
 
   // Attendance & Location Tracking (UC-08)
   Future<List<AttendanceModel>> getAttendanceLogs({String? areaId, String? workerId});
