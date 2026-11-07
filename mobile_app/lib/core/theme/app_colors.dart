@@ -17,6 +17,7 @@ class AppColors {
   static const Color primaryNavy = Color(0xFF08284B); // BantayGawa Signature Navy
   static const Color primaryDark = Color(0xFF07101E);
   static const Color accentGreen = Color(0xFF167346); // LGU Environment Green
+  static const Color accentEmerald = Color(0xFF10B981); // Emerald Green
   static const Color paleGreen = Color(0xFFE8F5EE);
   static const Color accentBlue = Color(0xFF2563EB);
 

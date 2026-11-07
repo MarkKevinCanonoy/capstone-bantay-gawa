@@ -80,4 +80,59 @@ class IncidentReportModel {
       createdAt: createdAt ?? this.createdAt,
     );
   }
+
+  factory IncidentReportModel.fromJson(Map<String, dynamic> json) {
+    String rName = json['reporter_name']?.toString() ?? '';
+    String dName = json['reported_name']?.toString() ?? '';
+    if (json['reporter'] != null && json['reporter'] is Map) {
+      final rep = json['reporter'];
+      rName = '${rep['first_name'] ?? ''} ${rep['last_name'] ?? ''}'.trim();
+    }
+    if (json['reported'] != null && json['reported'] is Map) {
+      final dep = json['reported'];
+      dName = '${dep['first_name'] ?? ''} ${dep['last_name'] ?? ''}'.trim();
+    }
+    if (rName.isEmpty) rName = 'Field Worker';
+    if (dName.isEmpty) dName = 'Reported Worker';
+
+    String? aName = json['area_name']?.toString();
+    if (aName == null && json['work_areas'] != null && json['work_areas'] is Map) {
+      aName = json['work_areas']['name']?.toString();
+    }
+
+    final status = json['status']?.toString() ?? 'pending';
+
+    return IncidentReportModel(
+      reportId: json['report_id']?.toString() ?? '',
+      reporterId: json['reporter_id']?.toString() ?? '',
+      reporterName: rName,
+      reportedId: json['reported_id']?.toString() ?? '',
+      reportedName: dName,
+      workareaId: json['workarea_id']?.toString(),
+      areaName: aName,
+      issueType: json['issue_type']?.toString() ?? 'General Issue',
+      description: json['description']?.toString() ?? '',
+      imageUrl: json['image_url']?.toString(),
+      status: status,
+      isEscalated: status == 'escalated_to_admin',
+      supervisorNotes: json['supervisor_notes']?.toString(),
+      settledBy: json['settled_by']?.toString(),
+      settledAt: json['settled_at'] != null ? DateTime.tryParse(json['settled_at'].toString()) : null,
+      adminResolutionNotes: json['admin_resolution_notes']?.toString(),
+      resolvedAt: json['resolved_at'] != null ? DateTime.tryParse(json['resolved_at'].toString()) : null,
+      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
+    );
+  }
+
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'report_id': reportId,
+      'reporter_id': reporterId,
+      'reported_id': reportedId,
+      'issue_type': issueType,
+      'description': description,
+      if (imageUrl != null) 'image_url': imageUrl,
+      'status': status,
+    };
+  }
 }

@@ -24,32 +24,32 @@ class _TutorialScreenState extends ConsumerState<TutorialScreen> {
     _TutorialSlide(
       icon: Icons.location_on_outlined,
       iconColor: AppColors.accentBlue,
-      titleFilipino: 'Sona ng Trabaho (Geofencing)',
+      titleCebuano: 'Sona sa Trabaho (Geofencing)',
       titleEnglish: 'Work Zone Geofencing',
-      descFilipino:
-          'Maaari ka lamang mag-log ng attendance kung ikaw ay pisikal na nasa loob ng iyong itinalagang sona sa Ormoc City. Sinusuri ng GPS ang iyong lokasyon bawat 1 minuto.',
+      descCebuano:
+          'Makahimo lamang ka og log sa attendance kon anaa ka pisikal sa sulod sa imong assigned nga sona sa Ormoc City. Gisusi sa GPS ang imong posisyon matag 1 ka minuto samtang aktibo ang shift.',
       descEnglish:
           'You can only log attendance while physically inside your assigned Ormoc City work area. GPS validates your position every 1 minute while shift is active.',
     ),
     _TutorialSlide(
       icon: Icons.camera_alt_outlined,
       iconColor: AppColors.accentGreen,
-      titleFilipino: 'Litrato na may Tatak (Watermark)',
+      titleCebuano: 'Hulagway nga may Tatak (Watermark)',
       titleEnglish: 'Watermarked Photo Proofs',
-      descFilipino:
-          'Bawat patunay ng trabaho ay awtomatikong lalagyan ng opisyal na tatak ng petsa, oras, at GPS coordinates nang direkta sa litrato bago ipadala sa supervisor.',
+      descCebuano:
+          'Ang matag hulagway sa nahumang buluhaton awtomatikong mabutangan og opisyal nga tatak sa petsa, oras, ug GPS coordinates direkta sa litrato sa dili pa ipadala sa supervisor.',
       descEnglish:
           'Every accomplishment photo automatically has the official date, time, and GPS coordinates permanently burned directly onto the image pixels before upload.',
     ),
     _TutorialSlide(
-      icon: Icons.workspace_premium_outlined,
-      iconColor: AppColors.warningOrange,
-      titleFilipino: 'Kredito sa Pagganap (Credit Score)',
-      titleEnglish: 'Performance Credit Score',
-      descFilipino:
-          'Panatilihing berde (80-100) ang iyong marka! Ang regular na attendance at naaprubahang ulat ay nagdaragdag ng puntos, habang ang pagliban ay may bawas.',
+      icon: Icons.verified_user_outlined,
+      iconColor: AppColors.accentGreen,
+      titleCebuano: 'Kalidad sa Serbisyo (Standing)',
+      titleEnglish: 'Workforce Standing & Compliance',
+      descCebuano:
+          'Hupti ang maayong rekord sa trabaho! Ang tukmang attendance ug pagtuman sa mga buluhaton magpabilin kanimo sa Good Standing.',
       descEnglish:
-          'Keep your score in the green tier (80-100)! On-time attendance and approved reports add points, while unexcused absences deduct points.',
+          'Maintain a good standing record! Consistent on-time attendance and approved accomplishment reports keep your account verified and active.',
     ),
   ];
 
@@ -81,7 +81,7 @@ class _TutorialScreenState extends ConsumerState<TutorialScreen> {
           TextButton(
             onPressed: _completeTutorial,
             child: Text(
-              lang == AppLanguage.filipino ? 'Laktawan' : 'Skip',
+              lang == AppLanguage.cebuano ? 'Laktawi' : 'Skip',
               style: const TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.bold),
             ),
           ),
@@ -100,36 +100,37 @@ class _TutorialScreenState extends ConsumerState<TutorialScreen> {
                   onPageChanged: (idx) => setState(() => _currentPage = idx),
                   itemBuilder: (context, index) {
                     final slide = _slides[index];
+                    final title = lang == AppLanguage.cebuano ? slide.titleCebuano : slide.titleEnglish;
+                    final desc = lang == AppLanguage.cebuano ? slide.descCebuano : slide.descEnglish;
+
                     return Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Container(
-                          width: 120,
-                          height: 120,
+                          width: 100,
+                          height: 100,
                           decoration: BoxDecoration(
                             color: slide.iconColor.withValues(alpha: 0.12),
                             shape: BoxShape.circle,
                           ),
-                          child: Center(
-                            child: Icon(slide.icon, size: 60, color: slide.iconColor),
-                          ),
+                          child: Icon(slide.icon, size: 50, color: slide.iconColor),
                         ),
                         const SizedBox(height: 32),
                         Text(
-                          lang == AppLanguage.filipino ? slide.titleFilipino : slide.titleEnglish,
+                          title,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 19,
+                            fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: AppColors.primaryNavy,
                           ),
                         ),
                         const SizedBox(height: 14),
                         Text(
-                          lang == AppLanguage.filipino ? slide.descFilipino : slide.descEnglish,
+                          desc,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 12,
+                            fontSize: 14,
                             color: AppColors.textSecondary,
                             height: 1.5,
                           ),
@@ -161,8 +162,8 @@ class _TutorialScreenState extends ConsumerState<TutorialScreen> {
               // Action Button
               AppButton(
                 label: _currentPage == _slides.length - 1
-                    ? (lang == AppLanguage.filipino ? 'Magsimula Na' : 'Get Started')
-                    : (lang == AppLanguage.filipino ? 'Susunod' : 'Next'),
+                    ? (lang == AppLanguage.cebuano ? 'Magsugod Na' : 'Get Started')
+                    : (lang == AppLanguage.cebuano ? 'Sunod' : 'Next'),
                 onPressed: () {
                   if (_currentPage < _slides.length - 1) {
                     _pageController.nextPage(
@@ -186,17 +187,17 @@ class _TutorialScreenState extends ConsumerState<TutorialScreen> {
 class _TutorialSlide {
   final IconData icon;
   final Color iconColor;
-  final String titleFilipino;
+  final String titleCebuano;
   final String titleEnglish;
-  final String descFilipino;
+  final String descCebuano;
   final String descEnglish;
 
   const _TutorialSlide({
     required this.icon,
     required this.iconColor,
-    required this.titleFilipino,
+    required this.titleCebuano,
     required this.titleEnglish,
-    required this.descFilipino,
+    required this.descCebuano,
     required this.descEnglish,
   });
 }

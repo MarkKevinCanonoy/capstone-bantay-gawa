@@ -9,7 +9,7 @@ class LocaleNotifier extends Notifier<AppLanguage> {
   @override
   AppLanguage build() {
     _loadPreference();
-    return AppLanguage.filipino; // Default to Filipino as preferred for ENRO field workers
+    return AppLanguage.cebuano; // Default to Cebuano (Bisaya) for Ormoc City field workers
   }
 
   Future<void> _loadPreference() async {
@@ -17,7 +17,7 @@ class LocaleNotifier extends Notifier<AppLanguage> {
     if (saved == 'english') {
       state = AppLanguage.english;
     } else {
-      state = AppLanguage.filipino;
+      state = AppLanguage.cebuano;
     }
   }
 
@@ -25,12 +25,12 @@ class LocaleNotifier extends Notifier<AppLanguage> {
     state = language;
     await _storage.write(
       key: _storageKey,
-      value: language == AppLanguage.english ? 'english' : 'filipino',
+      value: language == AppLanguage.english ? 'english' : 'cebuano',
     );
   }
 
   Future<void> toggleLanguage() async {
-    final next = state == AppLanguage.filipino ? AppLanguage.english : AppLanguage.filipino;
+    final next = state == AppLanguage.cebuano ? AppLanguage.english : AppLanguage.cebuano;
     await setLanguage(next);
   }
 }

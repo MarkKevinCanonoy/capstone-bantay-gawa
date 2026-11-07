@@ -104,4 +104,70 @@ class AlertModel {
       resolvedBy: resolvedBy ?? this.resolvedBy,
     );
   }
+
+  factory AlertModel.fromJson(Map<String, dynamic> json) {
+    String wName = json['worker_name']?.toString() ?? '';
+    String empId = json['worker_emp_id']?.toString() ?? '';
+    String contact = json['worker_contact']?.toString() ?? '';
+    String? wAreaName = json['workarea_name']?.toString();
+    int score = 100;
+    if (json['credit_score'] != null) {
+      score = (json['credit_score'] as num?)?.toInt() ?? 100;
+    } else if (json['users'] != null && json['users'] is Map) {
+      final u = json['users'];
+      if (wName.isEmpty) wName = '${u['first_name'] ?? ''} ${u['last_name'] ?? ''}'.trim();
+      if (empId.isEmpty) empId = u['qr_token']?.toString() ?? '';
+      if (contact.isEmpty) contact = u['contact_number']?.toString() ?? '';
+      if (u['credit_balance'] != null) {
+        final cb = u['credit_balance'];
+        if (cb is Map) {
+          score = int.tryParse(cb['current_score']?.toString() ?? '100') ?? 100;
+        } else if (cb is List && cb.isNotEmpty && cb.first is Map) {
+          score = int.tryParse(cb.first['current_score']?.toString() ?? '100') ?? 100;
+        }
+      }
+      if (wAreaName == null && u['work_area_assignments'] is List) {
+        final assignments = u['work_area_assignments'] as List;
+        if (assignments.isNotEmpty && assignments.first is Map && assignments.first['work_areas'] is Map) {
+          wAreaName = assignments.first['work_areas']['name']?.toString();
+        }
+      }
+    }
+
+    final type = json['type']?.toString() ?? 'Geofence Breach';
+    final isRes = json['resolved_at'] != null;
+    final message = json['message']?.toString() ?? '';
+
+    return AlertModel(
+      alertId: json['alert_id']?.toString() ?? '',
+      userId: json['user_id']?.toString(),
+      workerName: wName.isNotEmpty ? wName : 'Field Worker',
+      workerEmpId: empId.isNotEmpty ? empId : 'WRK-001',
+      workerContact: contact.isNotEmpty ? contact : '+63 917 000 0000',
+      creditScore: score,
+      absenceCount: (json['absence_count'] as num?)?.toInt() ?? 1,
+      workareaId: json['workarea_id']?.toString(),
+      workareaName: wAreaName ?? 'Ormoc Plaza',
+      type: type,
+      title: type,
+      description: message,
+      severity: type.toLowerCase().contains('absence') || type.toLowerCase().contains('breach') ? 'critical' : 'warning',
+      timeAgo: 'Recently',
+      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) ?? DateTime.now() : DateTime.now(),
+      isResolved: isRes,
+      resolvedAt: json['resolved_at'] != null ? DateTime.tryParse(json['resolved_at'].toString()) : null,
+      resolvedBy: json['resolved_by']?.toString(),
+    );
+  }
+
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'alert_id': alertId,
+      if (userId != null) 'user_id': userId,
+      'type': type,
+      'message': description.isNotEmpty ? description : title,
+      if (resolvedAt != null) 'resolved_at': resolvedAt!.toIso8601String(),
+      if (resolvedBy != null) 'resolved_by': resolvedBy,
+    };
+  }
 }

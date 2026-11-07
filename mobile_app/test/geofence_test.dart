@@ -38,4 +38,32 @@ void main() {
       expect(dist, lessThan(400.0));
     });
   });
+
+  group('Accomplishment Report Geofence Option A Validation Tests', () {
+    const List<LatLng> assignedSector = [
+      LatLng(11.0080, 124.6040),
+      LatLng(11.0080, 124.6110),
+      LatLng(11.0020, 124.6110),
+      LatLng(11.0020, 124.6040),
+    ];
+
+    test('Captured photo coordinates inside assigned sector flags isOutsideZone as false', () {
+      const inZonePoint = LatLng(11.0050, 124.6075);
+      final isOutside = !GeofenceHelper.isPointInPolygon(inZonePoint, assignedSector);
+      expect(isOutside, isFalse);
+    });
+
+    test('Captured photo coordinates outside assigned sector flags isOutsideZone as true', () {
+      const outOfBoundsPoint = LatLng(11.0250, 124.6300);
+      final isOutside = !GeofenceHelper.isPointInPolygon(outOfBoundsPoint, assignedSector);
+      expect(isOutside, isTrue);
+    });
+
+    test('Unassigned sector with empty polygon coordinates does not trigger false positive outside alert', () {
+      const point = LatLng(11.0050, 124.6075);
+      const List<LatLng> emptySector = [];
+      final isOutside = emptySector.isNotEmpty && !GeofenceHelper.isPointInPolygon(point, emptySector);
+      expect(isOutside, isFalse);
+    });
+  });
 }

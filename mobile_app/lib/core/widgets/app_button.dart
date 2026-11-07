@@ -10,6 +10,8 @@ class AppButton extends StatelessWidget {
   final bool isLoading;
   final AppButtonVariant variant;
   final double minHeight;
+  final bool isFullWidth;
+  final double? width;
 
   const AppButton({
     super.key,
@@ -19,6 +21,8 @@ class AppButton extends StatelessWidget {
     this.isLoading = false,
     this.variant = AppButtonVariant.primary,
     this.minHeight = 48,
+    this.isFullWidth = true,
+    this.width,
   });
 
   @override
@@ -51,7 +55,7 @@ class AppButton extends StatelessWidget {
       disabledBackgroundColor: bg.withValues(alpha: 0.5),
       disabledForegroundColor: fg.withValues(alpha: 0.7),
       elevation: 0,
-      minimumSize: Size(double.infinity, minHeight),
+      minimumSize: Size(isFullWidth ? double.infinity : (width ?? 0), minHeight),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
       ),
@@ -78,14 +82,24 @@ class AppButton extends StatelessWidget {
         style: buttonStyle,
         onPressed: onPressed,
         icon: Icon(icon, size: 18),
-        label: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        label: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+        ),
       );
     }
 
     return ElevatedButton(
       style: buttonStyle,
       onPressed: onPressed,
-      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+      ),
     );
   }
 }

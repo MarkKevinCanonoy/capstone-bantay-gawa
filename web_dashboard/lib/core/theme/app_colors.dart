@@ -23,11 +23,11 @@ class AppColors {
   static const Color secondaryButton = Color(0xFFEAEEF4); // Pale Slate Gray
   static const Color secondaryButtonText = Color(0xFF334155);
 
-  // Text Colors
-  static const Color textPrimary = Color(0xFF0F172A); // Slate 900
-  static const Color textSecondary = Color(0xFF334155); // Slate 700
-  static const Color textMuted = Color(0xFF64748B); // Slate 500
-  static const Color textLight = Color(0xFF94A3B8); // Slate 400
+  // Text Colors (Calibrated for high contrast & legibility across all displays)
+  static const Color textPrimary = Color(0xFF0F172A); // Slate 900 (High contrast headline)
+  static const Color textSecondary = Color(0xFF1E293B); // Slate 800 (Rich dark text, was 0xFF334155)
+  static const Color textMuted = Color(0xFF475569); // Slate 600 (High-contrast subtitle & column header, was 0xFF64748B)
+  static const Color textLight = Color(0xFF64748B); // Slate 500 (Clean placeholder & metadata, was 0xFF94A3B8)
 
   // Status Pills & Alert Colors
   // Optimal / Success / Active
@@ -43,6 +43,8 @@ class AppColors {
   static const Color dangerText = Color(0xFF991B1B);
   static const Color dangerBorder = Color(0xFFFECACA);
   static const Color brightRed = Color(0xFFDC2626);
+  static const Color dangerRed = Color(0xFFDC2626);
+  static const Color accentGreen = Color(0xFF059669);
 
   // Neutral / Review / Stable
   static const Color neutralBg = Color(0xFFF1F5F9);

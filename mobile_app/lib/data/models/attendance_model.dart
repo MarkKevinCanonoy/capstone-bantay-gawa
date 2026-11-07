@@ -1,3 +1,5 @@
+import '../../core/utils/uuid_helper.dart';
+
 class AttendanceModel {
   final String attendanceId;
   final String userId;
@@ -22,10 +24,10 @@ class AttendanceModel {
   AttendanceModel({
     required this.attendanceId,
     required this.userId,
-    this.workerName = 'Field Worker',
-    this.workerEmpId = 'ENRO-2024-001',
+    this.workerName = '',
+    this.workerEmpId = '',
     required this.workareaId,
-    this.areaName = 'Sector 4 - Downtown Zone',
+    this.areaName = '',
     this.actionType = 'time-in',
     required this.timestamp,
     required this.gpsLat,
@@ -35,20 +37,20 @@ class AttendanceModel {
     this.isSynced = true,
     this.isVerified = true,
     this.hasWarning = false,
-    this.timeIn = '06:58 AM',
-    this.breakIn = '12:02 PM',
-    this.breakOut = '01:00 PM',
-    this.timeOut = '04:05 PM',
+    this.timeIn = '--:--',
+    this.breakIn = '--:--',
+    this.breakOut = '--:--',
+    this.timeOut = '--:--',
   });
 
   factory AttendanceModel.fromMap(Map<String, dynamic> map) {
     return AttendanceModel(
       attendanceId: map['attendance_id'] as String? ?? '',
       userId: map['user_id'] as String? ?? '',
-      workerName: map['worker_name'] as String? ?? 'Field Worker',
-      workerEmpId: map['worker_emp_id'] as String? ?? 'ENRO-2024-001',
+      workerName: map['worker_name'] as String? ?? '',
+      workerEmpId: map['worker_emp_id'] as String? ?? '',
       workareaId: map['workarea_id'] as String? ?? '',
-      areaName: map['area_name'] as String? ?? 'Sector 4 - Downtown Zone',
+      areaName: map['area_name'] as String? ?? '',
       actionType: map['action_type'] as String? ?? 'time-in',
       timestamp: map['timestamp'] != null
           ? DateTime.tryParse(map['timestamp'].toString()) ?? DateTime.now()
@@ -60,10 +62,10 @@ class AttendanceModel {
       isSynced: (map['is_synced'] == 1 || map['is_synced'] == true),
       isVerified: (map['is_verified'] == 1 || map['is_verified'] == true),
       hasWarning: (map['has_warning'] == 1 || map['has_warning'] == true),
-      timeIn: map['time_in'] as String? ?? '06:58 AM',
-      breakIn: map['break_in'] as String? ?? '12:02 PM',
-      breakOut: map['break_out'] as String? ?? '01:00 PM',
-      timeOut: map['time_out'] as String? ?? '04:05 PM',
+      timeIn: map['time_in'] as String? ?? '--:--',
+      breakIn: map['break_in'] as String? ?? '--:--',
+      breakOut: map['break_out'] as String? ?? '--:--',
+      timeOut: map['time_out'] as String? ?? '--:--',
     );
   }
 
@@ -82,6 +84,21 @@ class AttendanceModel {
       'image_url': imageUrl,
       'face_match': faceMatch ? 1 : 0,
       'is_synced': isSynced ? 1 : 0,
+    };
+  }
+
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'attendance_id': attendanceId,
+      'user_id': userId,
+      if (UuidHelper.isValidUuid(workareaId)) 'workarea_id': workareaId,
+      'action_type': actionType,
+      'timestamp': timestamp.toIso8601String(),
+      'gps_lat': gpsLat,
+      'gps_lng': gpsLng,
+      if (imageUrl != null) 'image_url': imageUrl,
+      'face_match': faceMatch,
+      'is_synced': true,
     };
   }
 }

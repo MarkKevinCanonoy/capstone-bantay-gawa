@@ -1,8 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/app_button.dart';
@@ -14,6 +16,8 @@ import '../../data/models/work_area_model.dart';
 import '../../data/models/attendance_model.dart';
 import '../../data/models/accomplishment_model.dart';
 import '../../data/repositories/repository_provider.dart';
+import '../../core/utils/file_downloader_helper.dart';
+import '../../core/utils/official_report_pdf_helper.dart';
 
 class ReportsView extends ConsumerStatefulWidget {
   const ReportsView({super.key});
@@ -286,6 +290,22 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
       return matchesArea && matchesWorker && matchesDate;
     }).toList();
 
+    int statusPriority(String status) {
+      final s = status.toLowerCase();
+      if (s == 'pending') return 1;
+      if (s == 'approved' || s == 'accepted') return 2;
+      if (s == 'denied' || s == 'rejected') return 3;
+      return 2;
+    }
+
+    filteredAccomplishments.sort((a, b) {
+      final rankA = statusPriority(a.status);
+      final rankB = statusPriority(b.status);
+      if (rankA != rankB) return rankA.compareTo(rankB);
+      final cmp = b.capturedDate.compareTo(a.capturedDate);
+      return cmp != 0 ? cmp : b.capturedTime.compareTo(a.capturedTime);
+    });
+
     return (
       attendance: filteredAttendance,
       areas: filteredAreas,
@@ -446,35 +466,53 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     final attendance = filtered.attendance;
     final accomplishments = filtered.accomplishments;
 
-    final pdf = pw.Document();
-
-    String reportTitle = 'Attendance Summary Audit';
-    List<String> headers = ['Worker Name', 'Work Area', 'Time In', 'Time Out', 'Face Match', 'Status'];
+    String reportTitle = 'Attendance Compliance & Verification Audit';
+    String subtitle = 'Verified biometric clock-in and clock-out activity logs across Ormoc sectors.';
+    List<String> headers = ['Worker Name', 'Work Sector', 'Time In', 'Time Out', 'Biometric Match', 'Verification'];
     List<List<String>> dataRows = [];
+    PdfPageFormat pageFormat = PdfPageFormat.a4;
+    Map<int, pw.TableColumnWidth>? columnWidths;
 
     if (_selectedReportType == 'area_performance') {
-      reportTitle = 'Work Area Performance & Coverage Audit';
-      headers = ['Area Name', 'Supervisor', 'Assigned Workers', 'Status', 'Area Coverage'];
+      reportTitle = 'Work Area Performance & Sector Coverage Audit';
+      subtitle = 'Geofence boundaries, assigned personnel quotas, and active supervisory oversight.';
+      headers = ['Sector Name', 'Supervising Officer', 'Assigned Personnel', 'Coverage Area', 'Status'];
       dataRows = workAreas.map((a) => [
         a.name,
         a.supervisorName,
         '${a.assignedCount} Personnel',
-        a.status,
-        a.areaSqKm,
+        WorkAreaModel.formatPolygonArea(a.polygon),
+        a.status.toUpperCase(),
       ]).toList();
+      columnWidths = {
+        0: const pw.FlexColumnWidth(2.0),
+        1: const pw.FlexColumnWidth(2.2),
+        2: const pw.FlexColumnWidth(1.6),
+        3: const pw.FlexColumnWidth(1.2),
+        4: const pw.FlexColumnWidth(1.2),
+      };
     } else if (_selectedReportType == 'worker_performance') {
-      reportTitle = 'Worker Performance & Star Credit Audit';
-      headers = ['Worker Name', 'Assigned Area', 'Role', 'Credit Points', 'Standing'];
+      reportTitle = 'Worker Performance & Standing Audit';
+      subtitle = 'Workforce compliance ratings, operational reliability, and sector postings.';
+      headers = ['Personnel Name', 'Assigned Sector', 'Designation', 'Compliance Status', 'Standing'];
       dataRows = employees.where((e) => e.role == UserRole.worker).map((e) => [
         e.fullName,
         e.assignedAreaName ?? 'Unassigned',
         e.roleDisplayName,
-        '${e.creditScore} / 100',
+        e.creditScore >= 80 ? 'Good Standing' : e.creditScore >= 50 ? 'Under Review' : 'Action Required',
         e.creditScore >= 80 ? 'Optimal' : e.creditScore >= 50 ? 'Warning' : 'Critical',
       ]).toList();
+      columnWidths = {
+        0: const pw.FlexColumnWidth(2.2),
+        1: const pw.FlexColumnWidth(2.0),
+        2: const pw.FlexColumnWidth(1.6),
+        3: const pw.FlexColumnWidth(1.2),
+        4: const pw.FlexColumnWidth(1.2),
+      };
     } else if (_selectedReportType == 'accomplishments') {
-      reportTitle = 'Field Accomplishment & Proof Audit';
-      headers = ['Worker Name', 'Work Area', 'Date', 'Time', 'GPS Coordinates', 'Review Status'];
+      reportTitle = 'Field Accomplishment Proof & Task Completion Audit';
+      subtitle = 'Geotagged proof submissions, timestamp logs, and supervisor review endorsements.';
+      headers = ['Personnel Name', 'Work Sector', 'Captured Date', 'Time', 'Coordinates', 'Review Status'];
       dataRows = accomplishments.map((acc) => [
         acc.workerName,
         acc.areaName,
@@ -483,6 +521,14 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
         '${acc.capturedLat.toStringAsFixed(4)}, ${acc.capturedLng.toStringAsFixed(4)}',
         acc.status.toUpperCase(),
       ]).toList();
+      columnWidths = {
+        0: const pw.FlexColumnWidth(2.0),
+        1: const pw.FlexColumnWidth(1.8),
+        2: const pw.FlexColumnWidth(1.4),
+        3: const pw.FlexColumnWidth(1.2),
+        4: const pw.FlexColumnWidth(2.0),
+        5: const pw.FlexColumnWidth(1.4),
+      };
     } else {
       // Default: Attendance
       dataRows = attendance.map((log) => [
@@ -490,83 +536,83 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
         log.areaName,
         log.timeIn,
         log.timeOut,
-        log.faceMatch ? 'Yes' : 'No',
-        log.isVerified ? 'Verified' : 'Unverified',
+        log.faceMatch ? 'MATCHED' : 'UNMATCHED',
+        log.isVerified ? 'VERIFIED' : 'PENDING',
       ]).toList();
+      columnWidths = {
+        0: const pw.FlexColumnWidth(2.2),
+        1: const pw.FlexColumnWidth(2.0),
+        2: const pw.FlexColumnWidth(1.4),
+        3: const pw.FlexColumnWidth(1.4),
+        4: const pw.FlexColumnWidth(1.4),
+        5: const pw.FlexColumnWidth(1.4),
+      };
     }
 
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Header(
-                level: 0,
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
-                      children: [
-                        pw.Text('BantayGawa - $reportTitle', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-                        pw.Text('Environment and Natural Resources Office (ENRO) - Ormoc City', style: const pw.TextStyle(fontSize: 11)),
-                      ],
-                    ),
-                    pw.Text('Generated: 2026-09-28', style: const pw.TextStyle(fontSize: 10)),
-                  ],
-                ),
-              ),
-              pw.SizedBox(height: 12),
-              pw.Text('Generated by: ${currentUser.fullName} (${currentUser.roleDisplayName}) | Range: ${_getDateRangeLabel()}', style: const pw.TextStyle(fontSize: 10)),
-              pw.SizedBox(height: 16),
-              pw.TableHelper.fromTextArray(
-                headers: headers,
-                data: dataRows,
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
-                cellStyle: const pw.TextStyle(fontSize: 9),
-              ),
-            ],
-          );
-        },
-      ),
-    );
+    final sectorLabel = _selectedArea == 'all'
+        ? (currentUser.role == UserRole.supervisor ? (currentUser.assignedAreaName ?? 'Assigned Sectors') : 'All Ormoc Sectors')
+        : _selectedArea;
 
-    await Printing.layoutPdf(onLayout: (PdfPageFormat format) async => pdf.save());
-    if (mounted) {
-      ToastNotification.show(context, message: 'PDF report generated for $reportTitle.', type: ToastType.success);
+    try {
+      final pdfBytes = await OfficialReportPdfHelper.generateAuditPdf(
+        reportTitle: reportTitle,
+        subtitle: subtitle,
+        headers: headers,
+        dataRows: dataRows,
+        generatedBy: currentUser,
+        dateRangeLabel: _getDateRangeLabel(),
+        sectorLabel: sectorLabel,
+        columnWidths: columnWidths,
+        pageFormat: pageFormat,
+      );
+
+      final dateTag = '${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}';
+      final filename = 'BantayGawa_${_selectedReportType}_$dateTag.pdf';
+      downloadBytes(
+        filename: filename,
+        bytes: pdfBytes,
+        mimeType: 'application/pdf',
+      );
+
+      if (mounted) {
+        ToastNotification.show(context, message: 'Official PDF report downloaded ($filename).', type: ToastType.success);
+      }
+    } catch (e) {
+      if (mounted) {
+        ToastNotification.show(context, message: 'Failed to generate PDF: $e', type: ToastType.error);
+      }
     }
   }
 
   void _exportCsv() {
+    final currentUser = ref.read(currentUserProvider);
     final filtered = _getFilteredData();
     final workAreas = filtered.areas;
     final employees = filtered.workers;
     final attendance = filtered.attendance;
     final accomplishments = filtered.accomplishments;
 
-    List<List<String>> rows = [];
+    List<List<String>> dataRows = [];
 
     if (_selectedReportType == 'area_performance') {
-      rows = [
-        ['Work Area ID', 'Area Name', 'Supervisor', 'Assigned Workers', 'Status', 'Coverage'],
-        ...workAreas.map((a) => [a.workareaId, a.name, a.supervisorName, '${a.assignedCount}', a.status, a.areaSqKm]),
+      dataRows = [
+        ['Work Area ID', 'Area Name', 'Supervisor', 'Assigned Workers', 'Status'],
+        ...workAreas.map((a) => [a.workareaId, a.name, a.supervisorName, '${a.assignedCount}', a.status]),
       ];
     } else if (_selectedReportType == 'worker_performance') {
-      rows = [
-        ['User ID', 'Worker Name', 'Role', 'Assigned Area', 'Credit Score', 'Standing'],
+      dataRows = [
+        ['User ID', 'Worker Name', 'Role', 'Assigned Area', 'Compliance Status', 'Standing'],
         ...employees.where((e) => e.role == UserRole.worker).map((e) => [
           e.userId,
           e.fullName,
           e.roleDisplayName,
           e.assignedAreaName ?? 'Unassigned',
-          '${e.creditScore}',
+          e.creditScore >= 80 ? 'Good Standing' : e.creditScore >= 50 ? 'Under Review' : 'Action Required',
           e.creditScore >= 80 ? 'Optimal' : e.creditScore >= 50 ? 'Warning' : 'Critical',
         ]),
       ];
     } else if (_selectedReportType == 'accomplishments') {
-      rows = [
+      dataRows = [
         ['Accomplishment ID', 'Worker Name', 'Area Name', 'Date', 'Time', 'Latitude', 'Longitude', 'Status'],
         ...accomplishments.map((a) => [
           a.accomplishmentId,
@@ -580,7 +626,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
         ]),
       ];
     } else {
-      rows = [
+      dataRows = [
         ['Attendance ID', 'Worker Name', 'Employee ID', 'Work Area', 'Time In', 'Time Out', 'Face Match', 'Verified'],
         ...attendance.map((log) => [
           log.attendanceId,
@@ -595,12 +641,45 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
       ];
     }
 
-    final csvString = rows.map((r) => r.map((c) => '"$c"').join(',')).join('\n');
-    debugPrint('CSV Export Generated (${csvString.length} bytes)');
+    final now = DateTime.now();
+    final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final sectorLabel = _selectedArea == 'all'
+        ? (currentUser.role == UserRole.supervisor ? (currentUser.assignedAreaName ?? 'Assigned Sectors') : 'All Ormoc Sectors')
+        : _selectedArea;
+
+    final csvRows = <List<String>>[
+      // Official Agency Header
+      ['REPUBLIC OF THE PHILIPPINES - CITY GOVERNMENT OF ORMOC'],
+      ['CITY ENVIRONMENT AND NATURAL RESOURCES OFFICE (ENRO)'],
+      ['BANTAYGAWA - ENRO ORMOC CITY PORTAL - OFFICIAL AUDIT EXPORT'],
+      [''],
+      ['Report Category:', _selectedReportType.toUpperCase()],
+      ['Reporting Scope:', _getDateRangeLabel()],
+      ['Sector Scope:', sectorLabel],
+      ['Generated By:', '${currentUser.fullName} (${currentUser.roleDisplayName})'],
+      ['Generated On:', dateStr],
+      ['Total Records:', '${dataRows.length - 1}'],
+      [''],
+      ...dataRows,
+      [''],
+      ['OFFICIAL LGU SIGNATORIES'],
+      ['Prepared By:', currentUser.fullName, currentUser.role == UserRole.admin ? 'System Administrator / Head Clerk' : 'Field Operations Supervisor'],
+      ['Verified / Reviewed By:', 'FIELD OPERATIONS SUPERVISOR', 'City ENRO Ormoc'],
+      ['Approved By:', 'CITY ENRO DEPARTMENT HEAD', 'City Environment & Natural Resources Office, LGU Ormoc City'],
+    ];
+
+    final csvString = csvRows.map((r) => r.map((c) => '"${c.replaceAll('"', '""')}"').join(',')).join('\n');
+    final dateTag = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}';
+    final fileName = 'BantayGawa_${_selectedReportType}_$dateTag.csv';
+
+    downloadFile(
+      filename: fileName,
+      content: csvString,
+    );
 
     ToastNotification.show(
       context,
-      message: 'CSV exported: ${rows.length - 1} records (${_getDateRangeSummaryLabel()}).',
+      message: 'Downloaded $fileName (${dataRows.length - 1} records).',
       type: ToastType.success,
     );
   }
@@ -610,8 +689,8 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     final currentUser = ref.watch(currentUserProvider);
     final workAreasAsync = ref.watch(workAreasProvider);
     final employeesAsync = ref.watch(employeesProvider);
-    ref.watch(attendanceProvider);
-    ref.watch(accomplishmentsProvider);
+    final attendanceAsync = ref.watch(attendanceProvider);
+    final accomplishmentsAsync = ref.watch(accomplishmentsProvider);
 
     final rawWorkAreas = workAreasAsync.value ?? [];
     final rawEmployees = employeesAsync.value ?? [];
@@ -640,6 +719,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     } else {
       activeRecordCount = filteredAttendance.length;
     }
+
+    final isCategoryLoading = (_selectedReportType == 'accomplishments' && accomplishmentsAsync.isLoading && filteredAccomplishments.isEmpty) ||
+        (_selectedReportType == 'attendance' && attendanceAsync.isLoading && filteredAttendance.isEmpty);
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -693,7 +775,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
           // Filters Card
           AppCard(
@@ -800,10 +882,9 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                           key: ValueKey('year_$_selectedYear'),
                           isExpanded: true,
                           initialValue: _selectedYear,
-                          items: const [
-                            DropdownMenuItem(value: 2025, child: Text('2025')),
-                            DropdownMenuItem(value: 2026, child: Text('2026')),
-                            DropdownMenuItem(value: 2027, child: Text('2027')),
+                          items: [
+                            for (int y = DateTime.now().year - 2; y <= DateTime.now().year + 2; y++)
+                              DropdownMenuItem(value: y, child: Text('$y')),
                           ],
                           onChanged: (val) {
                             if (val != null) setState(() => _selectedYear = val);
@@ -1029,7 +1110,21 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
           Expanded(
             child: AppCard(
               padding: EdgeInsets.zero,
-              child: activeRecordCount == 0
+              child: isCategoryLoading
+                  ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(color: AppColors.accentBlue),
+                          SizedBox(height: 16),
+                          Text(
+                            'Compiling report records from cloud...',
+                            style: TextStyle(fontSize: 13, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    )
+                  : activeRecordCount == 0
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(40),
@@ -1096,6 +1191,265 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
           fontWeight: FontWeight.w700,
           color: AppColors.textMuted,
           letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
+  void _inspectProofModal(AccomplishmentModel proof) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: AppColors.surface,
+        titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 28),
+        actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: AppColors.primaryNavy.withValues(alpha: 0.1),
+                    child: const Icon(Icons.person, color: AppColors.primaryNavy, size: 22),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          proof.workerName,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${proof.areaName} • Submitted on ${proof.capturedDate} at ${proof.capturedTime}',
+                          style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            StatusBadge(
+              label: proof.status.toUpperCase(),
+              type: proof.status == 'approved'
+                  ? BadgeType.success
+                  : proof.status == 'denied'
+                      ? BadgeType.danger
+                      : BadgeType.warning,
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: 720,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  height: 320,
+                  width: double.infinity,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: Colors.black87,
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _buildReportProofImage(proof),
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          color: Colors.black.withValues(alpha: 0.85),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.access_time_rounded, size: 14, color: Colors.yellowAccent),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${proof.capturedDate} ${proof.capturedTime}',
+                                    style: const TextStyle(color: Colors.yellowAccent, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  const Icon(Icons.location_on_rounded, size: 14, color: Colors.white),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${proof.capturedLat.toStringAsFixed(5)}° N, ${proof.capturedLng.toStringAsFixed(5)}° E',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12, fontFamily: 'monospace'),
+                                  ),
+                                ],
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: AppColors.accentEmerald.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: AppColors.accentEmerald, width: 0.8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.verified_rounded, size: 12, color: AppColors.accentEmerald),
+                                    SizedBox(width: 4),
+                                    Text('BURNED WATERMARK VERIFIED', style: TextStyle(color: AppColors.accentEmerald, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (proof.message.isNotEmpty) ...[
+                  const Text('Field Accomplishment Notes', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceSubtle,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Text(proof.message, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          AppButton(
+            label: 'Close',
+            variant: ButtonVariant.secondary,
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static final Map<String, Uint8List> _reportImageMemoryCache = {};
+  static final Map<String, Future<Uint8List?>> _pendingReportDownloads = {};
+
+  Widget _buildReportProofImage(AccomplishmentModel proof) {
+    final cleanUrl = proof.imageUrl.trim();
+    final isNetwork = cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://');
+    final isBase64 = cleanUrl.startsWith('data:image') ||
+        (!isNetwork && cleanUrl.length > 100 && !cleanUrl.startsWith('/') && !cleanUrl.startsWith('file://'));
+
+    Widget? imageContent;
+    if (_reportImageMemoryCache.containsKey(cleanUrl)) {
+      imageContent = Image.memory(
+        _reportImageMemoryCache[cleanUrl]!,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+      );
+    } else if (isNetwork) {
+      imageContent = Image.network(
+        cleanUrl,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) {
+          if (_reportImageMemoryCache.containsKey(cleanUrl)) {
+            return Image.memory(
+              _reportImageMemoryCache[cleanUrl]!,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+            );
+          }
+          final future = _pendingReportDownloads.putIfAbsent(
+            cleanUrl,
+            () => _tryDownloadSupabaseStorage(cleanUrl),
+          );
+          return FutureBuilder<Uint8List?>(
+            future: future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.done && snapshot.data != null) {
+                return Image.memory(
+                  snapshot.data!,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                );
+              }
+              return _buildReportProofPlaceholder(proof);
+            },
+          );
+        },
+      );
+    } else if (isBase64) {
+      try {
+        String cleanBase64 = cleanUrl.contains(',') ? cleanUrl.split(',').last : cleanUrl;
+        cleanBase64 = cleanBase64.replaceAll(RegExp(r'\s+'), '');
+        final bytes = base64Decode(cleanBase64);
+        imageContent = Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _buildReportProofPlaceholder(proof),
+        );
+      } catch (e) {
+        debugPrint('Reports view Base64 decoding error: $e');
+        imageContent = null;
+      }
+    }
+
+    if (imageContent != null) {
+      return imageContent;
+    }
+    return _buildReportProofPlaceholder(proof);
+  }
+
+  Future<Uint8List?> _tryDownloadSupabaseStorage(String url) async {
+    if (_reportImageMemoryCache.containsKey(url)) {
+      return _reportImageMemoryCache[url];
+    }
+    try {
+      final uri = Uri.tryParse(url);
+      if (uri == null) return null;
+      final segments = uri.pathSegments;
+      final publicIdx = segments.indexOf('public');
+      if (publicIdx != -1 && publicIdx + 2 < segments.length) {
+        final bucket = segments[publicIdx + 1];
+        final path = segments.sublist(publicIdx + 2).join('/');
+        final bytes = await Supabase.instance.client.storage.from(bucket).download(path);
+        _reportImageMemoryCache[url] = bytes;
+        return bytes;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Widget _buildReportProofPlaceholder(AccomplishmentModel proof) {
+    return Container(
+      color: Colors.grey.shade900,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.camera_alt_outlined, color: Colors.white54, size: 40),
+            const SizedBox(height: 8),
+            Text(
+              'Proof: ${proof.accomplishmentId.substring(0, proof.accomplishmentId.length.clamp(0, 8))}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
         ),
       ),
     );
@@ -1177,7 +1531,12 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  child: Text(a.areaSqKm, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary)),
+                  child: Text(
+                    a.areaSqKm.isNotEmpty
+                        ? a.areaSqKm
+                        : (a.polygon.isNotEmpty ? 'Perimeter Defined' : 'Unbounded'),
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+                  ),
                 ),
               ],
             );
@@ -1192,7 +1551,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
         columnWidths: const {
           0: FlexColumnWidth(2.2), // WORKER NAME
           1: FlexColumnWidth(2.0), // ASSIGNED AREA
-          2: FlexColumnWidth(1.4), // CREDIT SCORE
+          2: FlexColumnWidth(1.6), // COMPLIANCE STATUS
           3: FlexColumnWidth(1.5), // STANDING LEVEL
           4: FlexColumnWidth(1.6), // SCHEDULE
         },
@@ -1205,7 +1564,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
             children: [
               _buildHeaderCell('WORKER NAME'),
               _buildHeaderCell('ASSIGNED AREA'),
-              _buildHeaderCell('CREDIT SCORE'),
+              _buildHeaderCell('COMPLIANCE STATUS'),
               _buildHeaderCell('STANDING LEVEL'),
               _buildHeaderCell('SCHEDULE'),
             ],
@@ -1248,7 +1607,18 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  child: Text('${w.creditScore} / 100', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  child: Text(
+                    w.creditScore >= 80 ? 'Good Standing' : w.creditScore >= 50 ? 'Under Review' : 'Action Required',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: w.creditScore >= 80
+                          ? AppColors.successText
+                          : w.creditScore >= 50
+                              ? AppColors.warningText
+                              : AppColors.dangerText,
+                    ),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1275,11 +1645,12 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
       return Table(
         defaultVerticalAlignment: TableCellVerticalAlignment.middle,
         columnWidths: const {
-          0: FlexColumnWidth(2.2), // FIELD WORKER
-          1: FlexColumnWidth(2.0), // WORK AREA
-          2: FlexColumnWidth(1.8), // DATE & TIME
-          3: FlexColumnWidth(2.0), // BURNED GPS
-          4: FlexColumnWidth(1.4), // STATUS
+          0: FlexColumnWidth(1.2), // PROOF PHOTO
+          1: FlexColumnWidth(2.0), // FIELD WORKER
+          2: FlexColumnWidth(1.8), // WORK AREA
+          3: FlexColumnWidth(1.8), // DATE & TIME
+          4: FlexColumnWidth(1.8), // BURNED GPS
+          5: FlexColumnWidth(1.4), // STATUS
         },
         children: [
           TableRow(
@@ -1288,6 +1659,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
               border: Border(bottom: BorderSide(color: AppColors.border, width: 1)),
             ),
             children: [
+              _buildHeaderCell('PROOF PHOTO'),
               _buildHeaderCell('FIELD WORKER'),
               _buildHeaderCell('WORK AREA'),
               _buildHeaderCell('DATE & TIME'),
@@ -1301,6 +1673,46 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                 border: Border(bottom: BorderSide(color: AppColors.borderSubtle, width: 1)),
               ),
               children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: () => _inspectProofModal(acc),
+                      child: Tooltip(
+                        message: 'Click to inspect full photo & metadata',
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          clipBehavior: Clip.antiAlias,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.border),
+                            color: Colors.black87,
+                          ),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              _buildReportProofImage(acc),
+                              Positioned(
+                                bottom: 2,
+                                right: 2,
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.black87,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.zoom_in, size: 10, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   child: Row(

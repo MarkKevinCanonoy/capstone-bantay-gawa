@@ -17,6 +17,7 @@ class LeaveRequestModel {
   final String? endorsedBy;
   final DateTime? endorsedAt;
   final bool isSynced;
+  final DateTime? createdAt;
 
   LeaveRequestModel({
     required this.leaveId,
@@ -37,6 +38,7 @@ class LeaveRequestModel {
     this.endorsedBy,
     this.endorsedAt,
     this.isSynced = true,
+    this.createdAt,
   });
 
   String get initials {
@@ -68,6 +70,7 @@ class LeaveRequestModel {
     String? endorsedBy,
     DateTime? endorsedAt,
     bool? isSynced,
+    DateTime? createdAt,
   }) {
     return LeaveRequestModel(
       leaveId: leaveId ?? this.leaveId,
@@ -88,6 +91,58 @@ class LeaveRequestModel {
       endorsedBy: endorsedBy ?? this.endorsedBy,
       endorsedAt: endorsedAt ?? this.endorsedAt,
       isSynced: isSynced ?? this.isSynced,
+      createdAt: createdAt ?? this.createdAt,
     );
+  }
+
+  factory LeaveRequestModel.fromJson(Map<String, dynamic> json) {
+    String wName = json['worker_name']?.toString() ?? '';
+    if (json['users'] != null && json['users'] is Map) {
+      final u = json['users'];
+      if (wName.isEmpty) wName = '${u['first_name'] ?? ''} ${u['last_name'] ?? ''}'.trim();
+    }
+    if (wName.isEmpty) wName = 'Field Worker';
+
+    String aName = json['area_name']?.toString() ?? '';
+    if (aName.isEmpty && json['work_areas'] != null && json['work_areas'] is Map) {
+      aName = json['work_areas']['name']?.toString() ?? '';
+    }
+    if (aName.isEmpty) aName = 'Ormoc Plaza';
+
+    return LeaveRequestModel(
+      leaveId: json['leave_id']?.toString() ?? '',
+      userId: json['user_id']?.toString() ?? '',
+      workerName: wName,
+      workareaId: json['workarea_id']?.toString(),
+      areaName: aName,
+      type: json['type']?.toString() ?? 'Sick Leave',
+      startDate: json['start_date']?.toString() ?? '',
+      endDate: json['end_date']?.toString() ?? '',
+      reason: json['reason']?.toString() ?? '',
+      imageUrl: json['image_url']?.toString(),
+      status: json['status']?.toString() ?? 'pending',
+      adminDecision: json['admin_decision']?.toString(),
+      decisionAt: json['decision_at'] != null ? DateTime.tryParse(json['decision_at'].toString()) : null,
+      rejectionReason: json['rejection_reason']?.toString(),
+      isSynced: json['is_synced'] == true || json['is_synced'] == 1,
+      createdAt: json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString()) : null,
+    );
+  }
+
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'leave_id': leaveId,
+      'user_id': userId,
+      'type': type,
+      'start_date': startDate,
+      'end_date': endDate,
+      'reason': reason,
+      if (imageUrl != null) 'image_url': imageUrl,
+      'status': status,
+      if (adminDecision != null) 'admin_decision': adminDecision,
+      if (decisionAt != null) 'decision_at': decisionAt!.toIso8601String(),
+      'is_synced': isSynced,
+      if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+    };
   }
 }

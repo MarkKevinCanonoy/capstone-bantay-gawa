@@ -1,13 +1,19 @@
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/localization/app_translations.dart';
 import '../../core/localization/locale_provider.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/biometrics_helper.dart';
 import '../../core/utils/liveness_detector.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/app_logo.dart';
+import '../../core/widgets/language_switch_button.dart';
 import '../../core/widgets/toast_notification.dart';
 import '../../data/repositories/mobile_repository_provider.dart';
+import '../../data/repositories/offline_sync_service.dart';
+import '../../data/repositories/supabase_mobile_repository.dart';
 
 class FaceLoginScreen extends ConsumerStatefulWidget {
   const FaceLoginScreen({super.key});
@@ -20,6 +26,7 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
   CameraController? _cameraController;
   bool _isCameraReady = false;
   bool _isProcessing = false;
+  bool _isSyncingProfiles = false;
   late AnimationController _animController;
   LivenessChallenge _activeChallenge = LivenessChallenge.blink;
   String _livenessStatus = 'Ready for face verification';
@@ -33,6 +40,25 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
     )..repeat(reverse: true);
     _activeChallenge = LivenessDetector.getRandomChallenge();
     _initializeCamera();
+    // Proactively pull newly registered workers from cloud into local SQLite
+    OfflineSyncService.instance.syncInboundPersonnel();
+  }
+
+  Future<void> _manualSync() async {
+    if (_isSyncingProfiles) return;
+    setState(() => _isSyncingProfiles = true);
+    try {
+      await OfflineSyncService.instance.syncInboundPersonnel();
+      if (mounted) {
+        ToastNotification.showSuccess(context, 'Enrolled profiles updated successfully.');
+      }
+    } catch (e) {
+      if (mounted) {
+        ToastNotification.showError(context, 'Profile sync notice: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isSyncingProfiles = false);
+    }
   }
 
   Future<void> _initializeCamera() async {
@@ -66,51 +92,108 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
 
   Future<void> _handleFaceScan() async {
     if (_isProcessing) return;
+
+    if (_cameraController == null || !_isCameraReady) {
+      if (mounted) {
+        ToastNotification.showError(
+          context,
+          'Camera is not ready. Please allow camera permissions and try again.',
+        );
+      }
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
-      _livenessStatus = 'CNN Anti-Spoofing: Verifying live motion...';
+      _livenessStatus = 'Verifying...';
     });
 
     try {
-      // Step 1: Liveness / Anti-spoofing verification (CNN Anti-Spoofing per SRS Section 7.2)
-      final liveness = await LivenessDetector.verifyLiveness(
-        challenge: _activeChallenge,
-        frameDeltas: [
-          [0.18, 0.22, 0.19],
-          [0.21, 0.25, 0.20],
-        ],
-      );
+      setState(() => _livenessStatus = 'Capturing...');
 
-      if (!liveness.isLive) {
+      // Step 1: Capture live photo from camera
+      final XFile photo = await _cameraController!.takePicture();
+      final Uint8List imageBytes = await photo.readAsBytes();
+
+      if (imageBytes.isEmpty) {
         if (mounted) {
-          ToastNotification.showError(context, 'Anti-spoofing alert: Live human presence not detected.');
+          ToastNotification.showError(context, 'Failed to capture photo from camera.');
         }
         return;
       }
 
-      setState(() => _livenessStatus = 'MobileFaceNet: Matching facial vector...');
+      setState(() => _livenessStatus = 'Checking liveness...');
 
-      // Step 2: Facial vector comparison against registered DB embedding
-      await Future.delayed(const Duration(milliseconds: 600));
-      final mockVector = List.generate(128, (index) => (0.05 * (index % 10)));
+      // Step 2: Anti-spoofing verification (detects glass/picture frame reflection & printed photo)
+      final liveness = await LivenessDetector.evaluateImageLiveness(imageBytes);
+      if (!liveness.isLive) {
+        if (mounted) {
+          ToastNotification.showError(
+            context,
+            liveness.errorMessage ?? 'Human presence not detected. Try again.',
+          );
+        }
+        return;
+      }
 
-      final success = await ref.read(currentUserProvider.notifier).loginWithFace(mockVector);
+      setState(() => _livenessStatus = 'Scanning face...');
+
+      // Step 3: Extract normalized 512-dimensional facial embedding vector
+      final faceVector = BiometricsHelper.extractFeatureVector(imageBytes);
+
+      setState(() => _livenessStatus = 'Matching record...');
+
+      // Step 4: Facial vector comparison against registered DB embeddings
+      final success = await ref
+          .read(currentUserProvider.notifier)
+          .loginWithFace(faceVector)
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () => false,
+          );
       if (!mounted) return;
 
       if (success) {
-        ToastNotification.showSuccess(context, 'Biometrics verified. Welcome!');
+        ToastNotification.showSuccess(context, 'Verified. Welcome!');
       } else {
-        ToastNotification.showError(context, 'Face not recognized. Please face the camera and try again.');
+        final repo = ref.read(mobileRepositoryProvider);
+        if (repo is SupabaseMobileRepository) {
+          final count = repo.lastCandidateCount;
+          final sim = repo.lastMatchSimilarity;
+          if (count == 0) {
+            ToastNotification.showError(
+              context,
+              'No enrolled profiles on device. Tap the sync button at top or connect to internet.',
+            );
+          } else if (sim > 0) {
+            final pct = (sim * 100).toInt();
+            ToastNotification.showError(
+              context,
+              'Face match was $pct% (needed 65%). Look directly into the circle with good lighting.',
+            );
+          } else {
+            ToastNotification.showError(
+              context,
+              'Face not recognized ($count profiles checked). Ensure face is centered inside circle.',
+            );
+          }
+        } else {
+          ToastNotification.showError(
+            context,
+            'Face not recognized. Please ensure you are enrolled as active personnel.',
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
-        ToastNotification.showError(context, 'Error verifying face: $e');
+        final cleanMsg = e.toString().replaceAll('Exception:', '').trim();
+        ToastNotification.showError(context, cleanMsg.isNotEmpty ? cleanMsg : 'Verification error: $e');
       }
     } finally {
       if (mounted) {
         setState(() {
           _isProcessing = false;
-          _livenessStatus = 'Ready for face verification';
+          _livenessStatus = '';
         });
       }
     }
@@ -119,165 +202,188 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
   @override
   Widget build(BuildContext context) {
     final lang = ref.watch(localeProvider);
-    final challengePrompt = lang == AppLanguage.filipino
-        ? _activeChallenge.instructionsFilipino
+    final challengePrompt = lang == AppLanguage.cebuano
+        ? _activeChallenge.instructionsCebuano
         : _activeChallenge.instructionsEnglish;
 
     return Scaffold(
       backgroundColor: AppColors.primaryNavy,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          child: Column(
-            children: [
-              const SizedBox(height: 10),
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: const BoxDecoration(
-                      color: AppColors.accentGreen,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Center(
-                      child: Text(
-                        'LGU',
-                        style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'BantayGawa',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'ENRO Ormoc City • Field Worker Portal',
-                style: TextStyle(color: Colors.white70, fontSize: 11),
-              ),
-              const Spacer(),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final screenHeight = constraints.maxHeight;
+            final isSmallScreen = screenHeight < 680;
+            final circleSize = (screenHeight * 0.30).clamp(160.0, 240.0);
 
-              // Circular Face Scanner Viewfinder with Anti-Spoofing Guide
-              Center(
-                child: AnimatedBuilder(
-                  animation: _animController,
-                  builder: (context, child) {
-                    return Container(
-                      width: 250,
-                      height: 250,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: _isProcessing
-                              ? AppColors.accentGreen
-                              : Color.lerp(
-                                  AppColors.accentBlue,
-                                  AppColors.accentGreen,
-                                  _animController.value,
-                                )!,
-                          width: 3.5,
+            return SingleChildScrollView(
+              physics: const ClampingScrollPhysics(),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: screenHeight),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      children: [
+                        // Top Bar with Official Logo, Manual Sync, and Language Switcher
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const AppLogo(compact: true, isDark: true),
+                            Row(
+                              children: [
+                                IconButton(
+                                  tooltip: 'Sync Enrolled Profiles',
+                                  icon: _isSyncingProfiles
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                                        )
+                                      : const Icon(Icons.sync_rounded, size: 20, color: Colors.white70),
+                                  onPressed: _isSyncingProfiles ? null : _manualSync,
+                                ),
+                                const SizedBox(width: 4),
+                                const LanguageSwitchButton(isDark: true, compact: true),
+                              ],
+                            ),
+                          ],
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.accentBlue.withValues(alpha: 0.3),
-                            blurRadius: 18,
-                            spreadRadius: 4,
-                          ),
-                        ],
-                      ),
-                      child: ClipOval(
-                        child: _isCameraReady && _cameraController != null
-                            ? CameraPreview(_cameraController!)
-                            : Container(
-                                color: const Color(0xFF0F172A),
-                                child: const Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.face_retouching_natural,
-                                      size: 80,
-                                      color: Color(0xFF6CC5FF),
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'Position face in circle',
-                                      style: TextStyle(color: Colors.white70, fontSize: 11),
+                        SizedBox(height: isSmallScreen ? 12 : 20),
+                        const Spacer(),
+
+                        // Circular Face Scanner Viewfinder (Preserving 100% natural aspect ratio)
+                        Center(
+                          child: AnimatedBuilder(
+                            animation: _animController,
+                            builder: (context, child) {
+                              return Container(
+                                width: circleSize,
+                                height: circleSize,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: _isProcessing
+                                        ? AppColors.accentGreen
+                                        : Color.lerp(
+                                            AppColors.accentBlue,
+                                            AppColors.accentGreen,
+                                            _animController.value,
+                                          )!,
+                                    width: 3.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.accentBlue.withValues(alpha: 0.35),
+                                      blurRadius: 20,
+                                      spreadRadius: 4,
                                     ),
                                   ],
                                 ),
-                              ),
-                      ),
-                    );
-                  },
-                ),
-              ),
+                                child: ClipOval(
+                                  child: _isCameraReady && _cameraController != null
+                                      ? LayoutBuilder(
+                                          builder: (context, constraints) {
+                                            final double rawRatio = _cameraController!.value.aspectRatio;
+                                            final double portraitRatio =
+                                                rawRatio > 1.0 ? (1.0 / rawRatio) : rawRatio;
+                                            return SizedBox(
+                                              width: constraints.maxWidth,
+                                              height: constraints.maxHeight,
+                                              child: FittedBox(
+                                                fit: BoxFit.cover,
+                                                child: SizedBox(
+                                                  width: 100,
+                                                  height: 100 / portraitRatio,
+                                                  child: CameraPreview(_cameraController!),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      : Container(
+                                          color: const Color(0xFF0F172A),
+                                          child: Center(
+                                            child: Icon(
+                                              Icons.face,
+                                              size: circleSize * 0.35,
+                                              color: const Color(0xFF6CC5FF),
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
 
-              const SizedBox(height: 20),
-              // Anti-spoofing challenge prompt badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.verified_user_outlined, color: AppColors.paleGreen, size: 16),
-                    const SizedBox(width: 8),
-                    Text(
-                      _isProcessing ? _livenessStatus : 'Liveness check: $challengePrompt',
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        SizedBox(height: isSmallScreen ? 12 : 16),
+                        // Minimal instruction chip
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            _isProcessing
+                                ? (_livenessStatus.isNotEmpty
+                                    ? _livenessStatus
+                                    : AppTranslations.get('verifying_biometrics', lang))
+                                : challengePrompt,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isSmallScreen ? 12 : 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(height: isSmallScreen ? 10 : 14),
+                        Text(
+                          AppTranslations.get('biometric_login_title', lang),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: isSmallScreen ? 18 : 20,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          AppTranslations.get('biometric_login_desc', lang),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: isSmallScreen ? 12 : 13,
+                          ),
+                        ),
+                        const Spacer(),
+                        SizedBox(height: isSmallScreen ? 12 : 20),
+
+                        // Action Button
+                        AppButton(
+                          label: _isProcessing
+                              ? AppTranslations.get('verifying_biometrics', lang)
+                              : AppTranslations.get('scan_face_login', lang),
+                          icon: Icons.camera_alt_outlined,
+                          isLoading: _isProcessing,
+                          variant: AppButtonVariant.success,
+                          minHeight: isSmallScreen ? 48 : 52,
+                          onPressed: _isProcessing ? null : _handleFaceScan,
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-
-              const SizedBox(height: 16),
-              const Text(
-                'First-Time Biometric Verification',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                lang == AppLanguage.filipino
-                    ? 'Ang iyong biometrics ay nakatala na sa hiring. Tumingin sa camera at sumunod sa liveness check.'
-                    : 'Your facial biometrics were pre-registered during hiring. Please look at the camera and complete the liveness prompt.',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white60, fontSize: 11, height: 1.4),
-              ),
-              const Spacer(),
-
-              // Action Button
-              AppButton(
-                label: _isProcessing ? 'Verifying Biometrics...' : 'Scan Face to Login',
-                icon: Icons.camera_alt_outlined,
-                isLoading: _isProcessing,
-                variant: AppButtonVariant.success,
-                minHeight: 52,
-                onPressed: _isProcessing ? null : _handleFaceScan,
-              ),
-              const SizedBox(height: 14),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
   }
 }
+

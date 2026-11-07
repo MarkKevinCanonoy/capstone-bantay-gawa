@@ -24,8 +24,13 @@ class AppConstants {
   // 0 - 49: Red (Critical)
 
   // Supabase Configuration
-  static const String supabaseUrl = 'https://bantaygawa.supabase.co';
-  static const String supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key';
+  static const String supabaseUrl = 'https://tltqottawkrpidnijdqo.supabase.co';
+  static const String supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRsdHFvdHRhd2tycGlkbmlqZHFvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2Nzc4NzYsImV4cCI6MjEwODI1Mzg3Nn0.wAkPP2s1CPQ19pBvGZ4BoAdJaQn3K7e0yUDUnSO0OW4';
+
+  // Database Role UUIDs
+  static const String roleAdminId = '00000000-0000-0000-0000-000000000001';
+  static const String roleSupervisorId = '00000000-0000-0000-0000-000000000002';
+  static const String roleWorkerId = '00000000-0000-0000-0000-000000000003';
 
   // Storage Buckets
   static const String bucketAccomplishments = 'accomplishments';

@@ -15,8 +15,29 @@ class ImageWatermarkHelper {
     required String workAreaName,
     DateTime? timestamp,
   }) {
-    final image = img.decodeImage(rawImageBytes);
-    if (image == null) return rawImageBytes;
+    img.Image? image;
+    try {
+      image = img.decodeImage(rawImageBytes);
+      if (image != null) {
+        image = img.bakeOrientation(image);
+      }
+    } catch (_) {}
+
+    // Fallback: create a solid neutral canvas if image decoding failed
+    if (image == null) {
+      image = img.Image(width: 640, height: 480);
+      img.fill(image, color: img.ColorRgba8(30, 41, 59, 255));
+    } else {
+      // Resize high-resolution camera output to a standardized max dimension (1024px)
+      // to keep watermark text proportionate, legible, and image bytes lightweight.
+      if (image.width > 1024 || image.height > 1024) {
+        if (image.width >= image.height) {
+          image = img.copyResize(image, width: 1024);
+        } else {
+          image = img.copyResize(image, height: 1024);
+        }
+      }
+    }
 
     final now = timestamp ?? DateTime.now();
     final dateStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(now);
@@ -35,7 +56,7 @@ class ImageWatermarkHelper {
       y1: bannerTop,
       x2: image.width,
       y2: image.height,
-      color: img.ColorRgba8(8, 40, 75, 220), // Navy banner
+      color: img.ColorRgba8(8, 40, 75, 225), // Navy banner
     );
 
     // Draw metadata strings onto the banner
@@ -48,6 +69,6 @@ class ImageWatermarkHelper {
     img.drawString(image, areaStr, font: font, x: 12, y: bannerTop + 44, color: textColor);
     img.drawString(image, workerStr, font: font, x: 12, y: bannerTop + 62, color: accentColor);
 
-    return Uint8List.fromList(img.encodeJpg(image, quality: 85));
+    return Uint8List.fromList(img.encodeJpg(image, quality: 80));
   }
 }

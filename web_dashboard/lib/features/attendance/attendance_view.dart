@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/status_badge.dart';
-import '../../core/widgets/toast_notification.dart';
+import '../../data/models/attendance_model.dart';
+import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
 
 class AttendanceView extends ConsumerStatefulWidget {
@@ -15,25 +17,65 @@ class AttendanceView extends ConsumerStatefulWidget {
 
 class _AttendanceViewState extends ConsumerState<AttendanceView> {
   String _filterArea = 'all';
+  DateTime? _selectedDate = DateTime.now();
+  final Set<String> _expandedWorkerKeys = {};
+
+  bool _isToday(DateTime d) {
+    final now = DateTime.now();
+    return d.year == now.year && d.month == now.month && d.day == now.day;
+  }
+
+  bool _isTodayOrFuture(DateTime d) {
+    final now = DateTime.now();
+    final todayMidnight = DateTime(now.year, now.month, now.day);
+    final targetMidnight = DateTime(d.year, d.month, d.day);
+    return !targetMidnight.isBefore(todayMidnight);
+  }
+
+  void _toggleExpanded(String key) {
+    setState(() {
+      if (_expandedWorkerKeys.contains(key)) {
+        _expandedWorkerKeys.remove(key);
+      } else {
+        _expandedWorkerKeys.add(key);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(currentUserProvider);
     final attendanceAsync = ref.watch(attendanceProvider);
     final workAreasAsync = ref.watch(workAreasProvider);
     final globalSearch = ref.watch(globalSearchProvider).toLowerCase();
-    final logs = attendanceAsync.value ?? [];
-    final workAreas = workAreasAsync.value ?? [];
+    final rawLogs = attendanceAsync.value ?? [];
+    final rawWorkAreas = workAreasAsync.value ?? [];
+    final workAreas = currentUser.role == UserRole.supervisor
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            a.workareaId == currentUser.assignedAreaId ||
+            a.name == currentUser.assignedAreaName).toList()
+        : rawWorkAreas;
+    final logs = currentUser.role == UserRole.supervisor
+        ? rawLogs.where((log) =>
+            workAreas.any((a) => a.workareaId == log.workareaId || a.name.toLowerCase() == log.areaName.toLowerCase())
+          ).toList()
+        : rawLogs;
 
     final filteredLogs = logs.where((log) {
       final matchesSearch = log.workerName.toLowerCase().contains(globalSearch) ||
           log.workerEmpId.toLowerCase().contains(globalSearch) ||
           log.areaName.toLowerCase().contains(globalSearch);
       final matchesArea = _filterArea == 'all' || log.workareaId == _filterArea;
-      return matchesSearch && matchesArea;
+      final matchesDate = _selectedDate == null ||
+          (log.timestamp.year == _selectedDate!.year &&
+              log.timestamp.month == _selectedDate!.month &&
+              log.timestamp.day == _selectedDate!.day);
+      return matchesSearch && matchesArea && matchesDate;
     }).toList();
 
-    final now = DateTime.now();
-    final dateStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dailyGroups = DailyWorkerAttendance.groupLogs(filteredLogs);
 
     return Padding(
       padding: const EdgeInsets.all(24),
@@ -43,28 +85,114 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Attendance Verification', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                  SizedBox(height: 4),
-                  Text('Daily on-device face recognition logs and geofence validation records.', style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
-                ],
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Attendance Verification',
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Daily on-device face recognition logs and geofence validation records grouped by workforce personnel.',
+                      style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 16),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(
                   color: AppColors.surface,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppColors.border),
                 ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.today, size: 16, color: AppColors.accentBlue),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Today: $dateStr',
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left, size: 20),
+                      tooltip: 'Previous Day',
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      onPressed: () {
+                        setState(() {
+                          final current = _selectedDate ?? DateTime.now();
+                          _selectedDate = current.subtract(const Duration(days: 1));
+                        });
+                      },
+                    ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _selectedDate ?? DateTime.now(),
+                          firstDate: DateTime(2022),
+                          lastDate: DateTime.now(),
+                        );
+                        if (picked != null) {
+                          setState(() => _selectedDate = picked);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.calendar_month_outlined, size: 16, color: AppColors.accentBlue),
+                            const SizedBox(width: 8),
+                            Text(
+                              _selectedDate == null
+                                  ? 'All Dates'
+                                  : _isToday(_selectedDate!)
+                                      ? 'Today: ${DateFormat('MMM d, yyyy').format(_selectedDate!)}'
+                                      : DateFormat('EEE, MMM d, yyyy').format(_selectedDate!),
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right, size: 20),
+                      tooltip: 'Next Day',
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      onPressed: (_selectedDate == null || _isTodayOrFuture(_selectedDate!))
+                          ? null
+                          : () {
+                              setState(() {
+                                final current = _selectedDate ?? DateTime.now();
+                                final nextDay = current.add(const Duration(days: 1));
+                                final now = DateTime.now();
+                                if (!nextDay.isAfter(DateTime(now.year, now.month, now.day))) {
+                                  _selectedDate = nextDay;
+                                }
+                              });
+                            },
+                    ),
+                    Container(height: 20, width: 1, color: AppColors.border),
+                    PopupMenuButton<String>(
+                      tooltip: 'Date options',
+                      icon: const Icon(Icons.more_vert, size: 18, color: AppColors.textSecondary),
+                      padding: EdgeInsets.zero,
+                      onSelected: (val) {
+                        setState(() {
+                          if (val == 'today') {
+                            _selectedDate = DateTime.now();
+                          } else if (val == 'yesterday') {
+                            _selectedDate = DateTime.now().subtract(const Duration(days: 1));
+                          } else if (val == 'all') {
+                            _selectedDate = null;
+                          }
+                        });
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(value: 'today', child: Text('Go to Today')),
+                        const PopupMenuItem(value: 'yesterday', child: Text('Go to Yesterday')),
+                        const PopupMenuItem(value: 'all', child: Text('View All Dates')),
+                      ],
                     ),
                   ],
                 ),
@@ -79,9 +207,26 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '${filteredLogs.length} attendance records',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                Row(
+                  children: [
+                    Text(
+                      '${dailyGroups.length} active personnel',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceSubtle,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        '${filteredLogs.length} total punches',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textMuted),
+                      ),
+                    ),
+                  ],
                 ),
                 Row(
                   mainAxisSize: MainAxisSize.min,
@@ -100,19 +245,17 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                       ),
                       child: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
-                          value: _filterArea,
+                          value: workAreas.any((a) => a.workareaId == _filterArea) || _filterArea == 'all'
+                              ? _filterArea
+                              : 'all',
                           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppColors.textSecondary),
                           style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                           items: [
-                            const DropdownMenuItem(value: 'all', child: Text('All Ormoc Sectors')),
-                            if (workAreas.isNotEmpty)
-                              ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name)))
-                            else ...const [
-                              DropdownMenuItem(value: 'area-1', child: Text('Ormoc City Hall Zone')),
-                              DropdownMenuItem(value: 'area-2', child: Text('Ormoc Public Market')),
-                              DropdownMenuItem(value: 'area-3', child: Text('Ormoc Bus Terminal')),
-                              DropdownMenuItem(value: 'area-4', child: Text('Centennial Park Zone')),
-                            ],
+                            DropdownMenuItem(
+                              value: 'all',
+                              child: Text(currentUser.role == UserRole.supervisor ? 'All Assigned Sectors' : 'All Ormoc Sectors'),
+                            ),
+                            ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name))),
                           ],
                           onChanged: (val) {
                             if (val != null) setState(() => _filterArea = val);
@@ -127,222 +270,311 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
           ),
           const SizedBox(height: 16),
 
-          // Attendance Logs Table (Stretched across full width)
+          // Attendance Logs Stacked Card List
           Expanded(
-            child: AppCard(
-              padding: EdgeInsets.zero,
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  if (filteredLogs.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.all(40),
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+            child: dailyGroups.isEmpty
+                ? AppCard(
+                    padding: const EdgeInsets.all(40),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.event_busy_outlined, size: 40, color: AppColors.textLight),
+                          const SizedBox(height: 12),
+                          Text(
+                            _selectedDate == null
+                                ? 'No attendance records found matching filters'
+                                : 'No attendance records found for this sector on ${DateFormat('MMM d, yyyy').format(_selectedDate!)}',
+                            style: const TextStyle(fontSize: 14, color: AppColors.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: dailyGroups.length,
+                    itemBuilder: (context, index) {
+                      final daily = dailyGroups[index];
+                      final isExpanded = _expandedWorkerKeys.contains(daily.userId);
+                      return _buildWorkerAttendanceCard(daily, isExpanded);
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWorkerAttendanceCard(DailyWorkerAttendance daily, bool isExpanded) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isExpanded ? AppColors.accentBlue.withValues(alpha: 0.4) : AppColors.border,
+          width: isExpanded ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Master Header Row (Clickable to Expand / Collapse)
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _toggleExpanded(daily.userId),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  // Worker Initials Avatar
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryNavy,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      daily.initials,
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  // Worker Name & ID
+                  Expanded(
+                    flex: 3,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          daily.workerName,
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
                           children: [
-                            Icon(Icons.event_busy_outlined, size: 40, color: AppColors.textLight),
-                            SizedBox(height: 12),
-                            Text('No attendance records found for this sector', style: TextStyle(fontSize: 14, color: AppColors.textMuted)),
+                            Text(
+                              daily.workerEmpId.startsWith('BW-ORMC-') ? 'Field Worker' : daily.workerEmpId,
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textLight),
+                            ),
+                            const SizedBox(width: 8),
+                            Icon(Icons.location_on, size: 12, color: AppColors.textLight),
+                            const SizedBox(width: 2),
+                            Flexible(
+                              child: Text(
+                                daily.areaName,
+                                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                           ],
                         ),
-                      ),
-                    );
-                  }
+                      ],
+                    ),
+                  ),
 
-                  const minWidth = 1150.0;
-                  final isWide = constraints.maxWidth >= minWidth;
+                  // Horizontal Punches Sequence Timeline Chips
+                  Expanded(
+                    flex: 4,
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _buildPunchMiniChip(
+                          label: 'IN',
+                          timeStr: daily.formattedTimeIn,
+                          isLogged: daily.timeInPunch != null,
+                          color: const Color(0xFF10B981),
+                        ),
+                        _buildPunchMiniChip(
+                          label: 'BREAK',
+                          timeStr: daily.formattedBreakIn,
+                          isLogged: daily.breakInPunch != null,
+                          color: const Color(0xFFD97706),
+                        ),
+                        _buildPunchMiniChip(
+                          label: 'RESUME',
+                          timeStr: daily.formattedBreakOut,
+                          isLogged: daily.breakOutPunch != null,
+                          color: const Color(0xFF2563EB),
+                        ),
+                        _buildPunchMiniChip(
+                          label: 'OUT',
+                          timeStr: daily.formattedTimeOut,
+                          isLogged: daily.timeOutPunch != null,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ],
+                    ),
+                  ),
 
-                  Widget tableWidget = Table(
-                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                    columnWidths: const {
-                      0: FlexColumnWidth(2.2), // WORKER
-                      1: FlexColumnWidth(1.6), // WORK AREA
-                            2: FlexColumnWidth(1.0), // TIME-IN
-                            3: FlexColumnWidth(1.0), // BREAK-IN
-                            4: FlexColumnWidth(1.0), // BREAK-OUT
-                            5: FlexColumnWidth(1.0), // TIME-OUT
-                            6: FlexColumnWidth(1.3), // FACE MATCH
-                            7: FlexColumnWidth(1.4), // GEOFENCE
-                            8: FlexColumnWidth(1.2), // STATUS
-                            9: FlexColumnWidth(0.9), // VERIFY
-                          },
-                          children: [
-                            TableRow(
-                              decoration: const BoxDecoration(
-                                color: AppColors.surfaceSubtle,
-                                border: Border(
-                                  bottom: BorderSide(color: AppColors.border, width: 1),
-                                ),
+                  // Duty Status Pill
+                  _buildDutyStatusPill(daily.statusSummary),
+                  const SizedBox(width: 10),
+
+                  // Face Match Badge
+                  StatusBadge(
+                    label: daily.allFaceMatched ? 'MATCHED' : 'FLAGGED',
+                    type: daily.allFaceMatched ? BadgeType.success : BadgeType.danger,
+                    icon: daily.allFaceMatched ? Icons.face : Icons.face_retouching_off,
+                  ),
+                  const SizedBox(width: 8),
+
+                  // Card Stack Count Indicator
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceSubtle,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.layers_outlined, size: 13, color: AppColors.textSecondary),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${daily.punches.length}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+
+                  // Expand / Collapse Chevron
+                  AnimatedRotation(
+                    turns: isExpanded ? 0.5 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.textSecondary,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Animated Dropdown / Expanded Punches Stack
+          AnimatedCrossFade(
+            firstChild: const SizedBox(width: double.infinity, height: 0),
+            secondChild: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Divider(height: 1, color: AppColors.border),
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  color: const Color(0xFFF8FAFC),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.history_toggle_off, size: 15, color: AppColors.textSecondary),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Punch History (${daily.punches.length} transactions)',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                               ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: daily.allFaceMatched ? AppColors.successBg : AppColors.dangerBg,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: daily.allFaceMatched
+                                    ? AppColors.accentEmerald.withValues(alpha: 0.3)
+                                    : AppColors.dangerRed.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                _buildHeaderCell('WORKER'),
-                                _buildHeaderCell('WORK AREA'),
-                                _buildHeaderCell('TIME-IN'),
-                                _buildHeaderCell('BREAK-IN'),
-                                _buildHeaderCell('BREAK-OUT'),
-                                _buildHeaderCell('TIME-OUT'),
-                                _buildHeaderCell('FACE MATCH'),
-                                _buildHeaderCell('GEOFENCE'),
-                                _buildHeaderCell('STATUS'),
-                                _buildHeaderCell('VERIFY'),
+                                Icon(
+                                  daily.allFaceMatched ? Icons.verified_user_rounded : Icons.gpp_bad_rounded,
+                                  size: 13,
+                                  color: daily.allFaceMatched ? AppColors.accentEmerald : AppColors.dangerRed,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  daily.allFaceMatched ? 'All Punches Biometrically Verified' : 'Biometric Mismatch Detected',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: daily.allFaceMatched ? AppColors.accentEmerald : AppColors.dangerRed,
+                                  ),
+                                ),
                               ],
                             ),
-                            ...filteredLogs.map((log) {
-                              return TableRow(
-                                decoration: const BoxDecoration(
-                                  border: Border(
-                                    bottom: BorderSide(color: AppColors.borderSubtle, width: 1),
-                                  ),
-                                ),
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Row(
-                                      children: [
-                                        CircleAvatar(
-                                          radius: 14,
-                                          backgroundColor: AppColors.primaryNavy,
-                                          child: Text(
-                                            log.initials,
-                                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                log.workerName,
-                                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textPrimary),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                              Text(
-                                                log.workerEmpId,
-                                                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Text(
-                                      log.areaName,
-                                      style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Text(
-                                      log.timeIn,
-                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Text(
-                                      log.breakIn,
-                                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Text(
-                                      log.breakOut,
-                                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Text(
-                                      log.timeOut,
-                                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: StatusBadge(
-                                        label: log.faceMatch ? 'MATCHED' : 'FAILED',
-                                        type: log.faceMatch ? BadgeType.success : BadgeType.danger,
-                                        icon: log.faceMatch ? Icons.face : Icons.face_retouching_off,
-                                      ),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: StatusBadge(
-                                        label: log.hasWarning ? 'BREACH (OUT)' : 'INSIDE',
-                                        type: log.hasWarning ? BadgeType.danger : BadgeType.optimal,
-                                        icon: log.hasWarning ? Icons.warning_amber_rounded : Icons.pin_drop_outlined,
-                                      ),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: StatusBadge(
-                                        label: log.isVerified ? 'VERIFIED' : 'UNVERIFIED',
-                                        type: log.isVerified ? BadgeType.optimal : BadgeType.neutral,
-                                      ),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: IconButton(
-                                        icon: Icon(
-                                          log.isVerified ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
-                                          color: log.isVerified ? AppColors.accentEmerald : AppColors.textLight,
-                                          size: 20,
-                                        ),
-                                        tooltip: log.isVerified ? 'Mark as Unverified' : 'Mark as Verified',
-                                        onPressed: () async {
-                                          await ref.read(dataRepositoryProvider).toggleAttendanceVerify(log.attendanceId);
-                                          ref.invalidate(attendanceProvider);
-                                          if (context.mounted) {
-                                            ToastNotification.show(
-                                              context,
-                                              message: 'Updated ${log.workerName} to ${!log.isVerified ? "Verified" : "Unverified"}',
-                                              type: ToastType.info,
-                                            );
-                                          }
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }),
-                          ],
-                        );
-
-                  if (!isWide) {
-                    tableWidget = SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: SizedBox(
-                        width: minWidth,
-                        child: tableWidget,
+                          ),
+                        ],
                       ),
-                    );
-                  }
+                      const SizedBox(height: 10),
 
-                  return SingleChildScrollView(
-                    child: tableWidget,
-                  );
-                },
-              ),
+                      // List of Individual Punches in this Stack
+                      ...daily.punches.map((punch) => _buildPunchItemRow(punch)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            crossFadeState: isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 220),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPunchMiniChip({
+    required String label,
+    required String timeStr,
+    required bool isLogged,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isLogged ? color.withValues(alpha: 0.1) : AppColors.surfaceSubtle,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: isLogged ? color.withValues(alpha: 0.3) : AppColors.border,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: isLogged ? color : AppColors.textLight,
+            ),
+          ),
+          Text(
+            timeStr,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: isLogged ? FontWeight.w700 : FontWeight.w500,
+              color: isLogged ? AppColors.textPrimary : AppColors.textLight,
             ),
           ),
         ],
@@ -350,17 +582,159 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     );
   }
 
-  Widget _buildHeaderCell(String label) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textMuted,
-          letterSpacing: 0.5,
-        ),
+  Widget _buildDutyStatusPill(String status) {
+    Color bg;
+    Color fg;
+    IconData icon;
+
+    switch (status) {
+      case 'ON DUTY':
+        bg = const Color(0xFFDCFCE7);
+        fg = const Color(0xFF166534);
+        icon = Icons.play_circle_outline;
+        break;
+      case 'ON BREAK':
+        bg = const Color(0xFFFEF3C7);
+        fg = const Color(0xFF92400E);
+        icon = Icons.coffee_outlined;
+        break;
+      case 'SHIFT COMPLETE':
+        bg = const Color(0xFFE0E7FF);
+        fg = const Color(0xFF3730A3);
+        icon = Icons.check_circle_outline;
+        break;
+      default:
+        bg = AppColors.surfaceSubtle;
+        fg = AppColors.textMuted;
+        icon = Icons.schedule;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            status,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: fg),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPunchItemRow(AttendanceModel punch) {
+    IconData punchIcon;
+    Color punchColor;
+    String punchTitle;
+
+    switch (punch.actionType.toLowerCase()) {
+      case 'time-in':
+        punchIcon = Icons.login_rounded;
+        punchColor = const Color(0xFF10B981);
+        punchTitle = 'Time-In';
+        break;
+      case 'break-in':
+        punchIcon = Icons.free_breakfast_outlined;
+        punchColor = const Color(0xFFD97706);
+        punchTitle = 'Break-In';
+        break;
+      case 'break-out':
+        punchIcon = Icons.play_arrow_outlined;
+        punchColor = const Color(0xFF2563EB);
+        punchTitle = 'Break-Out';
+        break;
+      case 'time-out':
+        punchIcon = Icons.logout_rounded;
+        punchColor = AppColors.primaryNavy;
+        punchTitle = 'Time-Out';
+        break;
+      default:
+        punchIcon = Icons.access_time;
+        punchColor = AppColors.primaryNavy;
+        punchTitle = punch.actionType.toUpperCase();
+    }
+
+    final formattedExact = DateFormat('hh:mm:ss a').format(punch.timestamp);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          // Action Icon
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: punchColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(punchIcon, color: punchColor, size: 16),
+          ),
+          const SizedBox(width: 12),
+
+          // Action Title & Exact Timestamp
+          Expanded(
+            flex: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  punchTitle,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
+                ),
+                Text(
+                  formattedExact,
+                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+
+          // Sector & Geofence
+          Expanded(
+            flex: 3,
+            child: Row(
+              children: [
+                Icon(
+                  punch.hasWarning ? Icons.warning_amber_rounded : Icons.location_on,
+                  size: 14,
+                  color: punch.hasWarning ? AppColors.dangerRed : AppColors.accentGreen,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    '${punch.areaName} (${punch.hasWarning ? "Outside Zone" : "In Zone"})',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: punch.hasWarning ? AppColors.dangerRed : AppColors.textSecondary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Face Verification Badge
+          StatusBadge(
+            label: punch.faceMatch ? 'Face Verified' : 'Mismatch',
+            type: punch.faceMatch ? BadgeType.success : BadgeType.danger,
+            icon: punch.faceMatch ? Icons.verified_user_rounded : Icons.gpp_bad_rounded,
+          ),
+        ],
       ),
     );
   }

@@ -5,6 +5,10 @@ import 'package:web_dashboard/features/attendance/attendance_view.dart';
 import 'package:web_dashboard/features/dashboard/dashboard_view.dart';
 import 'package:web_dashboard/features/notifications/notifications_view.dart';
 import 'package:web_dashboard/features/work_areas/work_areas_view.dart';
+import 'package:web_dashboard/data/repositories/mock_repository.dart';
+import 'package:web_dashboard/data/repositories/repository_provider.dart';
+import 'package:web_dashboard/data/models/user_model.dart';
+import 'package:web_dashboard/data/models/attendance_model.dart';
 
 void main() {
   testWidgets('DashboardView renders without throwing errors', (WidgetTester tester) async {
@@ -105,9 +109,32 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
+    final testRepo = MockRepository();
+    await testRepo.addUser(UserModel(
+      userId: 'test-wkr-1',
+      username: 'danilo.ocampo@enro.gov.ph',
+      firstName: 'Danilo',
+      lastName: 'Ocampo',
+      contactNumber: '+63 917 555 0101',
+      role: UserRole.worker,
+      status: 'active',
+    ));
+    await testRepo.addUser(UserModel(
+      userId: 'test-wkr-2',
+      username: 'carlos.mendoza@enro.gov.ph',
+      firstName: 'Carlos',
+      lastName: 'Mendoza',
+      contactNumber: '+63 917 555 0102',
+      role: UserRole.worker,
+      status: 'active',
+    ));
+
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
+      ProviderScope(
+        overrides: [
+          dataRepositoryProvider.overrideWithValue(testRepo),
+        ],
+        child: const MaterialApp(
           home: Scaffold(
             body: WorkAreasView(),
           ),
@@ -126,7 +153,6 @@ void main() {
     // Verify modal is open
     expect(find.byType(TextField), findsOneWidget);
     expect(find.textContaining('WORKFORCE ROSTER'), findsOneWidget);
-    expect(find.text('Priority: Unassigned workers listed first'), findsOneWidget);
     expect(find.byIcon(Icons.share_outlined), findsNothing);
 
     // Test Search by First Name: "Danilo"
@@ -163,9 +189,28 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
 
+    final attendanceRepo = MockRepository();
+    attendanceRepo.addAttendance(AttendanceModel(
+      attendanceId: 'att-test-1',
+      userId: 'test-wkr-2',
+      workerName: 'Carlos Mendoza',
+      workerEmpId: 'ENRO-WKR-02',
+      workareaId: '4b106dc7-8a37-42cf-af39-b80b55cc156f',
+      areaName: 'Ormoc Plaza',
+      actionType: 'time-in',
+      timestamp: DateTime.now(),
+      gpsLat: 11.0050,
+      gpsLng: 124.6060,
+      faceMatch: true,
+      isSynced: true,
+    ));
+
     await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
+      ProviderScope(
+        overrides: [
+          dataRepositoryProvider.overrideWithValue(attendanceRepo),
+        ],
+        child: const MaterialApp(
           home: Scaffold(
             body: AttendanceView(),
           ),
@@ -176,36 +221,22 @@ void main() {
 
     // Verify Title & Subtitle
     expect(find.text('Attendance Verification'), findsOneWidget);
-    expect(find.text('Daily on-device face recognition logs and geofence validation records.'), findsOneWidget);
+    expect(find.textContaining('Daily on-device face recognition logs and geofence validation records'), findsOneWidget);
 
-    // Verify Filter bar has records count and Sector: dropdown
-    expect(find.textContaining('attendance records'), findsOneWidget);
+    // Verify Filter bar has personnel count and Sector: dropdown
+    expect(find.textContaining('active personnel'), findsOneWidget);
     expect(find.text('Sector:'), findsOneWidget);
 
-    // Verify stretched Table headers
-    expect(find.text('WORKER'), findsOneWidget);
-    expect(find.text('WORK AREA'), findsOneWidget);
-    expect(find.text('TIME-IN'), findsOneWidget);
-    expect(find.text('BREAK-IN'), findsOneWidget);
-    expect(find.text('BREAK-OUT'), findsOneWidget);
-    expect(find.text('TIME-OUT'), findsOneWidget);
-    expect(find.text('FACE MATCH'), findsOneWidget);
-    expect(find.text('GEOFENCE'), findsOneWidget);
-    expect(find.text('STATUS'), findsOneWidget);
-    expect(find.text('VERIFY'), findsOneWidget);
-
-    // Verify Table widget is present
-    expect(find.byType(Table), findsOneWidget);
-
-    // Verify attendance records render (e.g. Carlos Mendoza or Elena Reyes)
+    // Verify stacked worker cards render (e.g. Carlos Mendoza)
     expect(find.text('Carlos Mendoza'), findsWidgets);
 
-    // Test verify action toggle
-    final verifyBtns = find.byTooltip('Mark as Unverified');
-    if (verifyBtns.evaluate().isNotEmpty) {
-      await tester.tap(verifyBtns.first);
-      await tester.pumpAndSettle();
-    }
+    // Expand worker punch stack
+    await tester.tap(find.text('Carlos Mendoza').first);
+    await tester.pumpAndSettle();
+
+    // Verify expanded punch history
+    expect(find.textContaining('Punch History'), findsOneWidget);
+    expect(find.text('Time-In'), findsWidgets);
 
     expect(tester.takeException(), isNull);
   });

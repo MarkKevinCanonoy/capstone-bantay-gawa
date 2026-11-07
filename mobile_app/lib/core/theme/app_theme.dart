@@ -22,6 +22,21 @@ class AppTheme {
         surfaceTintColor: Colors.white,
         centerTitle: false,
       ),
+      navigationBarTheme: NavigationBarThemeData(
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        height: 64,
+        backgroundColor: Colors.white,
+        indicatorColor: const Color(0xFFDCE8F6),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final isSelected = states.contains(WidgetState.selected);
+          return TextStyle(
+            fontSize: 10.5,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            color: isSelected ? AppColors.primaryNavy : AppColors.textMuted,
+            overflow: TextOverflow.ellipsis,
+          );
+        }),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.surfaceSubtle,
