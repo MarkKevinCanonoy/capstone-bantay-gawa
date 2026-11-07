@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -20,12 +19,6 @@ enum RecoveryStep {
   enterEmail,
   verifyOtp,
   setPassword,
-}
-
-enum MfaStep {
-  credentials,
-  otp,
-  face,
 }
 
 class LoginView extends ConsumerStatefulWidget {
@@ -281,18 +274,6 @@ class _LoginViewState extends ConsumerState<LoginView> {
         ToastNotification.show(context, message: 'Authentication error: $e', type: ToastType.error);
       }
     }
-
-    setState(() {
-      _currentStep = MfaStep.otp;
-    });
-
-    _startResendCountdown();
-
-    ToastNotification.show(
-      context,
-      message: 'Step 1 Passed. 6-digit MFA OTP sent to registered email.',
-      type: ToastType.info,
-    );
   }
 
   Future<void> _completeLogin(String cleanInput, {bool isDemo = false}) async {
@@ -661,7 +642,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
       backgroundColor: AppColors.scaffoldBackground,
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+          padding: const EdgeInsets.all(24),
           child: Container(
             width: 460,
             padding: const EdgeInsets.all(36),
@@ -671,13 +652,12 @@ class _LoginViewState extends ConsumerState<LoginView> {
               border: Border.all(color: AppColors.border),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x0C0F172A),
-                  blurRadius: 24,
+                  color: Color(0x08000000),
+                  blurRadius: 20,
                   offset: Offset(0, 8),
                 ),
               ],
             ),
-            clipBehavior: Clip.antiAlias,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
