@@ -31,6 +31,8 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
   LivenessChallenge _activeChallenge = LivenessChallenge.blink;
   String _livenessStatus = 'Ready for face verification';
 
+  CameraLensDirection _currentLens = CameraLensDirection.front;
+
   @override
   void initState() {
     super.initState();
@@ -64,13 +66,17 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
   Future<void> _initializeCamera() async {
     try {
       final cameras = await availableCameras();
-      final frontCamera = cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
+      if (cameras.isEmpty) {
+        if (mounted) setState(() => _isCameraReady = false);
+        return;
+      }
+      final selectedCamera = cameras.firstWhere(
+        (c) => c.lensDirection == _currentLens,
         orElse: () => cameras.first,
       );
 
       _cameraController = CameraController(
-        frontCamera,
+        selectedCamera,
         ResolutionPreset.medium,
         enableAudio: false,
       );
@@ -81,6 +87,19 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
       debugPrint('Camera initialization error (using fallback preview): $e');
       if (mounted) setState(() => _isCameraReady = false);
     }
+  }
+
+  Future<void> _toggleCamera() async {
+    if (_isProcessing) return;
+    final nextLens = _currentLens == CameraLensDirection.front
+        ? CameraLensDirection.back
+        : CameraLensDirection.front;
+    setState(() {
+      _currentLens = nextLens;
+      _isCameraReady = false;
+    });
+    await _cameraController?.dispose();
+    await _initializeCamera();
   }
 
   @override
@@ -241,6 +260,17 @@ class _FaceLoginScreenState extends ConsumerState<FaceLoginScreen> with SingleTi
                                         )
                                       : const Icon(Icons.sync_rounded, size: 20, color: Colors.white70),
                                   onPressed: _isSyncingProfiles ? null : _manualSync,
+                                ),
+                                IconButton(
+                                  tooltip: _currentLens == CameraLensDirection.front ? 'Switch to Back Camera' : 'Switch to Front Camera',
+                                  icon: Icon(
+                                    _currentLens == CameraLensDirection.front
+                                        ? Icons.flip_camera_android_rounded
+                                        : Icons.flip_camera_ios_rounded,
+                                    size: 20,
+                                    color: Colors.white70,
+                                  ),
+                                  onPressed: _isProcessing ? null : _toggleCamera,
                                 ),
                                 const SizedBox(width: 4),
                                 const LanguageSwitchButton(isDark: true, compact: true),
