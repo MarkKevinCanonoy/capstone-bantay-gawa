@@ -255,6 +255,112 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                 ),
                 const SizedBox(height: 16),
 
+                // Worker Task Description (Prominent & Easy to Spot)
+                Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header Ribbon
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryNavy.withValues(alpha: 0.05),
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+                          border: const Border(bottom: BorderSide(color: AppColors.borderSubtle)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accentBlue.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Icon(Icons.assignment_turned_in_rounded, size: 16, color: AppColors.accentBlue),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'WORKER TASK DESCRIPTION',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.6,
+                                    color: AppColors.primaryNavy,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceSubtle,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.person_pin_circle_outlined, size: 12, color: AppColors.textMuted),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    proof.workerName,
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Description Content
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: proof.message.trim().isNotEmpty
+                            ? Text(
+                                proof.message.trim(),
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.textPrimary,
+                                  height: 1.5,
+                                ),
+                              )
+                            : Row(
+                                children: const [
+                                  Icon(Icons.info_outline_rounded, size: 16, color: AppColors.textMuted),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'No task description was entered by the worker.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontStyle: FontStyle.italic,
+                                      color: AppColors.textMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
                 // Submission & Photo Details
                 const Text('Photo & Location Details', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
                 const SizedBox(height: 8),
@@ -274,7 +380,7 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                               icon: Icons.person_outline_rounded,
                               label: 'FIELD WORKER',
                               value: proof.workerName,
-                              subtitle: 'Worker ID: ${proof.userId}',
+                              subtitle: 'Field Personnel',
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -329,32 +435,6 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                               ),
                             ),
                           ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                const Text("Worker's Task Description", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceSubtle,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(Icons.format_quote_rounded, size: 20, color: AppColors.textMuted),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          proof.message.isNotEmpty ? proof.message : 'No additional description provided.',
-                          style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4),
                         ),
                       ),
                     ],
@@ -1209,7 +1289,7 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
             children: [
               // Image Header
               Container(
-                height: 160,
+                height: 140,
                 width: double.infinity,
                 clipBehavior: Clip.antiAlias,
                 decoration: const BoxDecoration(
@@ -1327,7 +1407,7 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
 
               // Card Body
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1369,7 +1449,7 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         const Icon(Icons.location_on_outlined, size: 14, color: AppColors.accentBlue),
@@ -1384,13 +1464,54 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      proof.message.isNotEmpty ? proof.message : 'No task message provided.',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, height: 1.25),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceSubtle,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(Icons.assignment_outlined, size: 14, color: AppColors.textPrimary),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'TASK DESCRIPTION',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.5,
+                                    color: AppColors.textMuted,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  proof.message.isNotEmpty ? proof.message : 'No task description provided.',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                    height: 1.25,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
 
                     // Clear Status Banner Box
                     Container(

@@ -76,8 +76,32 @@ class AppTranslations {
       AppLanguage.english: 'LOG ATTENDANCE',
     },
     'log_attendance_sub': {
-      AppLanguage.cebuano: 'Time-in, Pahuway, o Time-out',
-      AppLanguage.english: 'Time-in, Break-in, Break-out, or Time-out',
+      AppLanguage.cebuano: 'Time-in, Pahuway, Balik Trabaho, o Time-out',
+      AppLanguage.english: 'Time In, Break, Resume, or Time Out',
+    },
+    'open_camera': {
+      AppLanguage.cebuano: 'I-open ang Kamera',
+      AppLanguage.english: 'Open Camera',
+    },
+    'close_camera': {
+      AppLanguage.cebuano: 'I-off ang Kamera',
+      AppLanguage.english: 'Close Camera',
+    },
+    'camera_standby_hint': {
+      AppLanguage.cebuano: 'Naka-standby ang kamera aron dili makonsumo ang baterya',
+      AppLanguage.english: 'Camera is in standby to save battery & improve performance',
+    },
+    'camera_standby_sub': {
+      AppLanguage.cebuano: 'Pindota ang "I-open ang Kamera" aron magamit ang viewfinder',
+      AppLanguage.english: 'Tap "Open Camera" to activate the live viewfinder',
+    },
+    'retake_photo': {
+      AppLanguage.cebuano: 'Kuha Pag-usab',
+      AppLanguage.english: 'Retake Photo',
+    },
+    'use_photo': {
+      AppLanguage.cebuano: 'Gamita Kini',
+      AppLanguage.english: 'Use Photo',
     },
     'upload_report': {
       AppLanguage.cebuano: 'PASA OG PROOF SA BUHAT',

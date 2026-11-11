@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -43,6 +45,47 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December',
   ];
+
+  bool _isPointInPolygon(double lat, double lng, List<LatLng> polygon) {
+    if (polygon.length < 3) return true;
+    bool isInside = false;
+    for (int i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      if (((polygon[i].latitude > lat) != (polygon[j].latitude > lat)) &&
+          (lng <
+              (polygon[j].longitude - polygon[i].longitude) *
+                      (lat - polygon[i].latitude) /
+                      (polygon[j].latitude - polygon[i].latitude) +
+                  polygon[i].longitude)) {
+        isInside = !isInside;
+      }
+    }
+    return isInside;
+  }
+
+  double _computeDistanceMeters(double lat1, double lng1, double lat2, double lng2) {
+    const double r = 6371000;
+    final double phi1 = lat1 * math.pi / 180;
+    final double phi2 = lat2 * math.pi / 180;
+    final double deltaPhi = (lat2 - lat1) * math.pi / 180;
+    final double deltaLambda = (lng2 - lng1) * math.pi / 180;
+
+    final double a = math.sin(deltaPhi / 2) * math.sin(deltaPhi / 2) +
+        math.cos(phi1) * math.cos(phi2) * math.sin(deltaLambda / 2) * math.sin(deltaLambda / 2);
+    final double c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return r * c;
+  }
+
+  double? _computeMinDistanceToPolygonMeters(double lat, double lng, List<LatLng> polygon) {
+    if (polygon.isEmpty) return null;
+    double minDistance = double.infinity;
+    for (final point in polygon) {
+      final d = _computeDistanceMeters(lat, lng, point.latitude, point.longitude);
+      if (d < minDistance) {
+        minDistance = d;
+      }
+    }
+    return minDistance;
+  }
 
   @override
   void initState() {
@@ -468,7 +511,7 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
 
     String reportTitle = 'Attendance Compliance & Verification Audit';
     String subtitle = 'Verified biometric clock-in and clock-out activity logs across Ormoc sectors.';
-    List<String> headers = ['Worker Name', 'Work Sector', 'Time In', 'Time Out', 'Biometric Match', 'Verification'];
+    List<String> headers = ['Worker Name', 'Work Sector', 'Time In', 'Time Out', 'Geofence Compliance', 'Verification'];
     List<List<String>> dataRows = [];
     PdfPageFormat pageFormat = PdfPageFormat.a4;
     Map<int, pw.TableColumnWidth>? columnWidths;
@@ -531,20 +574,27 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
       };
     } else {
       // Default: Attendance
-      dataRows = attendance.map((log) => [
-        log.workerName,
-        log.areaName,
-        log.timeIn,
-        log.timeOut,
-        log.faceMatch ? 'MATCHED' : 'UNMATCHED',
-        log.isVerified ? 'VERIFIED' : 'PENDING',
-      ]).toList();
+      dataRows = attendance.map((log) {
+        final matchingArea = workAreas.where((a) => a.workareaId == log.workareaId || a.name.toLowerCase() == log.areaName.toLowerCase()).firstOrNull;
+        final bool hasCoords = log.gpsLat != 0.0 && log.gpsLng != 0.0;
+        final bool isInside = (matchingArea != null && matchingArea.polygon.length >= 3 && hasCoords)
+            ? _isPointInPolygon(log.gpsLat, log.gpsLng, matchingArea.polygon)
+            : !log.hasWarning;
+        return [
+          log.workerName,
+          log.areaName,
+          log.timeIn,
+          log.timeOut,
+          !hasCoords ? 'NO GPS' : isInside ? 'IN-ZONE' : 'OUT-OF-BOUNDS',
+          log.isVerified ? 'VERIFIED' : 'PENDING',
+        ];
+      }).toList();
       columnWidths = {
         0: const pw.FlexColumnWidth(2.2),
         1: const pw.FlexColumnWidth(2.0),
         2: const pw.FlexColumnWidth(1.4),
         3: const pw.FlexColumnWidth(1.4),
-        4: const pw.FlexColumnWidth(1.4),
+        4: const pw.FlexColumnWidth(1.8),
         5: const pw.FlexColumnWidth(1.4),
       };
     }
@@ -627,17 +677,28 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
       ];
     } else {
       dataRows = [
-        ['Attendance ID', 'Worker Name', 'Employee ID', 'Work Area', 'Time In', 'Time Out', 'Face Match', 'Verified'],
-        ...attendance.map((log) => [
-          log.attendanceId,
-          log.workerName,
-          log.workerEmpId,
-          log.areaName,
-          log.timeIn,
-          log.timeOut,
-          log.faceMatch ? 'TRUE' : 'FALSE',
-          log.isVerified ? 'TRUE' : 'FALSE',
-        ]),
+        ['Attendance ID', 'Worker Name', 'Employee ID', 'Work Area', 'Time In', 'Time Out', 'Geofence Compliance', 'GPS Coordinates', 'Face Match', 'Verified'],
+        ...attendance.map((log) {
+          final matchingArea = workAreas.where((a) => a.workareaId == log.workareaId || a.name.toLowerCase() == log.areaName.toLowerCase()).firstOrNull;
+          final bool hasCoords = log.gpsLat != 0.0 && log.gpsLng != 0.0;
+          final bool isInside = (matchingArea != null && matchingArea.polygon.length >= 3 && hasCoords)
+              ? _isPointInPolygon(log.gpsLat, log.gpsLng, matchingArea.polygon)
+              : !log.hasWarning;
+          final complianceStr = !hasCoords ? 'NO GPS SIGNAL' : (isInside ? 'IN-ZONE COMPLIANT' : 'OUT-OF-BOUNDS');
+          final coordsStr = hasCoords ? '${log.gpsLat.toStringAsFixed(5)}, ${log.gpsLng.toStringAsFixed(5)}' : 'N/A';
+          return [
+            log.attendanceId,
+            log.workerName,
+            log.workerEmpId,
+            log.areaName,
+            log.timeIn,
+            log.timeOut,
+            complianceStr,
+            coordsStr,
+            log.faceMatch ? 'TRUE' : 'FALSE',
+            log.isVerified ? 'TRUE' : 'FALSE',
+          ];
+        }),
       ];
     }
 
@@ -1181,16 +1242,50 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     );
   }
 
-  Widget _buildHeaderCell(String label) {
+  Widget _buildHeaderCell(String label, {String? tooltip}) {
+    final text = Text(
+      label,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textMuted,
+        letterSpacing: 0.5,
+      ),
+    );
+
+    if (tooltip == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        child: text,
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: AppColors.textMuted,
-          letterSpacing: 0.5,
+      child: Tooltip(
+        message: tooltip,
+        preferBelow: false,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.white24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        textStyle: const TextStyle(color: Colors.white, fontSize: 11, height: 1.3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(child: text),
+            const SizedBox(width: 4),
+            const Icon(Icons.help_outline_rounded, size: 13, color: AppColors.accentBlue),
+          ],
         ),
       ),
     );
@@ -1776,11 +1871,11 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
       defaultVerticalAlignment: TableCellVerticalAlignment.middle,
       columnWidths: const {
         0: FlexColumnWidth(2.2), // WORKER NAME
-        1: FlexColumnWidth(2.0), // SECTOR
+        1: FlexColumnWidth(1.9), // SECTOR
         2: FlexColumnWidth(1.2), // TIME-IN
         3: FlexColumnWidth(1.2), // TIME-OUT
-        4: FlexColumnWidth(1.8), // GEOFENCE ACCURACY
-        5: FlexColumnWidth(1.8), // AUDIT VERIFICATION
+        4: FlexColumnWidth(2.2), // GEOFENCE COMPLIANCE
+        5: FlexColumnWidth(1.6), // AUDIT VERIFICATION
       },
       children: [
         TableRow(
@@ -1793,11 +1888,45 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
             _buildHeaderCell('SECTOR'),
             _buildHeaderCell('TIME-IN'),
             _buildHeaderCell('TIME-OUT'),
-            _buildHeaderCell('GEOFENCE ACCURACY'),
+            _buildHeaderCell(
+              'GEOFENCE COMPLIANCE',
+              tooltip: 'Location Verification: Verifies via GPS whether attendance was recorded inside the assigned sector boundary.',
+            ),
             _buildHeaderCell('AUDIT VERIFICATION'),
           ],
         ),
         ...attendance.map((log) {
+          final matchingArea = areas.where((a) => a.workareaId == log.workareaId || a.name.toLowerCase() == log.areaName.toLowerCase()).firstOrNull;
+          final bool hasCoords = log.gpsLat != 0.0 && log.gpsLng != 0.0;
+          final bool isInside = (matchingArea != null && matchingArea.polygon.length >= 3 && hasCoords)
+              ? _isPointInPolygon(log.gpsLat, log.gpsLng, matchingArea.polygon)
+              : !log.hasWarning;
+
+          double? breachMeters;
+          if (!isInside && hasCoords && matchingArea != null && matchingArea.polygon.isNotEmpty) {
+            breachMeters = _computeMinDistanceToPolygonMeters(log.gpsLat, log.gpsLng, matchingArea.polygon);
+          }
+
+          final complianceStatusText = !hasCoords
+              ? 'No GPS Lock'
+              : isInside
+                  ? 'In-Zone (On-Site)'
+                  : (breachMeters != null && breachMeters > 0)
+                      ? 'Out-of-Bounds (+${breachMeters.round()}m)'
+                      : 'Out-of-Bounds';
+
+          final complianceColor = !hasCoords
+              ? AppColors.textMuted
+              : isInside
+                  ? const Color(0xFF059669)
+                  : AppColors.brightRed;
+
+          final complianceIcon = !hasCoords
+              ? Icons.location_off_outlined
+              : isInside
+                  ? Icons.check_circle_rounded
+                  : Icons.cancel_outlined;
+
           return TableRow(
             decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: AppColors.borderSubtle, width: 1)),
@@ -1843,26 +1972,36 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                 child: Text(log.timeOut, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                child: Row(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      log.hasWarning ? Icons.cancel_outlined : Icons.check_circle_outline,
-                      color: log.hasWarning ? AppColors.brightRed : Colors.green,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        log.hasWarning ? 'Out-of-Bounds' : '100% In-Zone',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: log.hasWarning ? AppColors.brightRed : Colors.green.shade800,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(complianceIcon, color: complianceColor, size: 15),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            complianceStatusText,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: complianceColor,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      ],
                     ),
+                    if (hasCoords) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '${log.gpsLat.toStringAsFixed(5)}°, ${log.gpsLng.toStringAsFixed(5)}°',
+                        style: const TextStyle(fontSize: 10, color: AppColors.textMuted, fontFamily: 'monospace'),
+                      ),
+                    ],
                   ],
                 ),
               ),

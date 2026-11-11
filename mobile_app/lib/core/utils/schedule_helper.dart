@@ -238,7 +238,7 @@ class ScheduleHelper {
 
   /// Checks whether a worker is permitted to Time-In given their [eval].
   /// Allows Time-In during [ShiftStatus.activeShift] or within [earlyBufferMinutes] (default 30 mins) before shift.
-  static ShiftValidationResult canTimeInNow(ShiftEvaluation eval, {int earlyBufferMinutes = 30}) {
+  static ShiftValidationResult canTimeInNow(ShiftEvaluation eval, {int earlyBufferMinutes = 30, DateTime? now}) {
     if (eval.status == ShiftStatus.unassigned) {
       return const ShiftValidationResult(allowed: true);
     }
@@ -295,8 +295,8 @@ class ScheduleHelper {
 
     if (eval.status == ShiftStatus.activeShift || eval.status == ShiftStatus.afterShift) {
       if (eval.startTime != null) {
-        final now = DateTime.now();
-        final nowMins = now.hour * 60 + now.minute;
+        final current = now ?? DateTime.now();
+        final nowMins = current.hour * 60 + current.minute;
         final startMins = eval.startTime!.hour * 60 + eval.startTime!.minute;
         final diff = nowMins - startMins;
 

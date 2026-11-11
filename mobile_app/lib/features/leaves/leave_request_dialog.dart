@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/uuid_helper.dart';
 import '../../core/widgets/app_button.dart';
+import '../../core/widgets/camera_capture_modal.dart';
 import '../../core/widgets/toast_notification.dart';
 import '../../data/datasources/local_database.dart';
 import '../../data/models/leave_request_model.dart';
@@ -320,30 +320,27 @@ class _LeaveRequestDialogWidgetState extends ConsumerState<_LeaveRequestDialogWi
 
     if (choice == 'gallery') {
       try {
-        final files = await FilePicker.pickFiles(
+        final result = await FilePicker.pickFiles(
           type: FileType.image,
         );
-        if (files.isNotEmpty && mounted) {
-          final file = files.first;
-          final safeName = file.name.replaceAll(RegExp(r'[^\w\.\-]'), '_');
-          String filePath;
-          if (file.path != null && await File(file.path!).exists()) {
-            filePath = file.path!;
-          } else {
-            final bytes = await file.readAsBytes();
-            final tempDir = await getTemporaryDirectory();
-            final tempFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$safeName');
-            await tempFile.writeAsBytes(bytes);
-            filePath = tempFile.path;
+        if (result.isNotEmpty && result.first.path != null && mounted) {
+          final file = File(result.first.path!);
+          final reportedLen = await file.length();
+          if (reportedLen > 10 * 1024 * 1024) {
+            if (mounted) {
+              ToastNotification.showWarning(context, 'Image exceeds maximum size of 10 MB.');
+            }
+            return;
           }
-          final compressedPath = await _compressAndSaveImage(filePath);
+          final compressedPath = await _compressAndSaveImage(file.path);
           final len = await File(compressedPath).length();
           if (mounted) {
             setState(() {
               _attachedProofPath = compressedPath;
-              _attachedFileName = file.name;
+              _attachedFileName = result.first.name;
               _attachedFileSize = len;
             });
+            ToastNotification.showSuccess(context, 'Photo attached from gallery.');
           }
         }
       } catch (e) {
@@ -354,32 +351,14 @@ class _LeaveRequestDialogWidgetState extends ConsumerState<_LeaveRequestDialogWi
       }
     } else if (choice == 'document') {
       try {
-        final files = await FilePicker.pickFiles(
+        final result = await FilePicker.pickFiles(
           type: FileType.custom,
           allowedExtensions: ['pdf', 'docx', 'doc', 'txt'],
         );
-        if (files.isNotEmpty && mounted) {
-          final file = files.first;
-          final reportedLen = file.lengthSync() ?? (await file.length()) ?? 0;
+        if (result.isNotEmpty && result.first.path != null && mounted) {
+          final file = File(result.first.path!);
+          final reportedLen = await file.length();
           if (reportedLen > 10 * 1024 * 1024) {
-            if (mounted) {
-              ToastNotification.showWarning(context, 'Document exceeds maximum size of 10 MB.');
-            }
-            return;
-          }
-          final safeName = file.name.replaceAll(RegExp(r'[^\w\.\-]'), '_');
-          String filePath;
-          if (file.path != null && await File(file.path!).exists()) {
-            filePath = file.path!;
-          } else {
-            final bytes = await file.readAsBytes();
-            final tempDir = await getTemporaryDirectory();
-            final tempFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_$safeName');
-            await tempFile.writeAsBytes(bytes);
-            filePath = tempFile.path;
-          }
-          final finalLen = await File(filePath).length();
-          if (finalLen > 10 * 1024 * 1024) {
             if (mounted) {
               ToastNotification.showWarning(context, 'Document exceeds maximum size of 10 MB.');
             }
@@ -387,10 +366,11 @@ class _LeaveRequestDialogWidgetState extends ConsumerState<_LeaveRequestDialogWi
           }
           if (mounted) {
             setState(() {
-              _attachedProofPath = filePath;
-              _attachedFileName = file.name;
-              _attachedFileSize = finalLen;
+              _attachedProofPath = file.path;
+              _attachedFileName = result.first.name;
+              _attachedFileSize = reportedLen;
             });
+            ToastNotification.showSuccess(context, 'Document attached successfully.');
           }
         }
       } catch (e) {
@@ -401,13 +381,12 @@ class _LeaveRequestDialogWidgetState extends ConsumerState<_LeaveRequestDialogWi
       }
     } else if (choice == 'camera') {
       try {
-        final cameras = await availableCameras();
-        if (cameras.isNotEmpty) {
-          final controller = CameraController(cameras.first, ResolutionPreset.medium, enableAudio: false);
-          await controller.initialize();
-          final photo = await controller.takePicture();
-          await controller.dispose();
-          final compressedPath = await _compressAndSaveImage(photo.path);
+        final capturedPath = await showCameraCaptureModal(
+          context,
+          title: 'Capture Document / Certificate',
+        );
+        if (capturedPath != null && mounted) {
+          final compressedPath = await _compressAndSaveImage(capturedPath);
           final len = await File(compressedPath).length();
           if (mounted) {
             setState(() {
@@ -415,33 +394,14 @@ class _LeaveRequestDialogWidgetState extends ConsumerState<_LeaveRequestDialogWi
               _attachedFileName = 'cert_${DateTime.now().millisecondsSinceEpoch}.jpg';
               _attachedFileSize = len;
             });
-          }
-        } else {
-          final dir = await getTemporaryDirectory();
-          final sampleFile = File('${dir.path}/med_cert_${DateTime.now().millisecondsSinceEpoch}.jpg');
-          await sampleFile.writeAsBytes(List.filled(100, 0));
-          if (mounted) {
-            setState(() {
-              _attachedProofPath = sampleFile.path;
-              _attachedFileName = sampleFile.path.split('/').last;
-              _attachedFileSize = 100;
-            });
+            ToastNotification.showSuccess(context, 'Document photo captured successfully.');
           }
         }
       } catch (e) {
         debugPrint('Camera capture error: $e');
-        try {
-          final dir = await getTemporaryDirectory();
-          final sampleFile = File('${dir.path}/med_cert_${DateTime.now().millisecondsSinceEpoch}.jpg');
-          await sampleFile.writeAsBytes(List.filled(100, 0));
-          if (mounted) {
-            setState(() {
-              _attachedProofPath = sampleFile.path;
-              _attachedFileName = sampleFile.path.split('/').last;
-              _attachedFileSize = 100;
-            });
-          }
-        } catch (_) {}
+        if (mounted) {
+          ToastNotification.showError(context, 'Could not capture photo: $e');
+        }
       }
     }
   }

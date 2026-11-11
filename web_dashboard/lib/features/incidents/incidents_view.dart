@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +20,7 @@ class IncidentsView extends ConsumerStatefulWidget {
 }
 
 class _IncidentsViewState extends ConsumerState<IncidentsView> {
+  final Map<String, Uint8List> _decodedImageCache = {};
   String _statusFilter = 'all';
   DateTime? _selectedDate;
   String _dateRangePreset = 'all';
@@ -45,511 +47,801 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
     return DateFormat('EEE, MMM d, yyyy').format(_selectedDate!);
   }
 
+  void _showPhotoLightbox(String imageUrl, {String? title}) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.85),
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: Center(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: 820,
+              maxHeight: MediaQuery.of(ctx).size.height * 0.86,
+            ),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF1E293B),
+                    border: Border(bottom: BorderSide(color: Colors.white10)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppColors.accentBlue.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.zoom_in_rounded, size: 16, color: AppColors.accentBlue),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title ?? 'Incident Evidence Photo',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const Text(
+                              'Pinch or scroll to zoom in/out',
+                              style: TextStyle(fontSize: 11, color: Colors.white54),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => Navigator.pop(ctx),
+                          borderRadius: BorderRadius.circular(20),
+                          hoverColor: Colors.white.withValues(alpha: 0.15),
+                          child: Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withValues(alpha: 0.1),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                            ),
+                            child: const Icon(Icons.close_rounded, size: 18, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Flexible(
+                  child: Container(
+                    color: Colors.black,
+                    width: double.infinity,
+                    child: InteractiveViewer(
+                      minScale: 0.8,
+                      maxScale: 4.0,
+                      child: Center(
+                        child: _buildRawImageWidget(imageUrl, fit: BoxFit.contain),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRawImageWidget(String imageUrl, {BoxFit fit = BoxFit.cover}) {
+    final cleanUrl = imageUrl.trim();
+    final isNetwork = cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://');
+    final isBase64 = cleanUrl.startsWith('data:image') ||
+        (!isNetwork && cleanUrl.length > 100 && !cleanUrl.startsWith('/') && !cleanUrl.startsWith('file://'));
+
+    if (isNetwork) {
+      return Image.network(
+        cleanUrl,
+        fit: fit,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => _buildBrokenProofIcon(),
+      );
+    } else if (isBase64) {
+      try {
+        Uint8List? cachedBytes = _decodedImageCache[cleanUrl];
+        if (cachedBytes == null) {
+          String cleanBase64 = cleanUrl.contains(',') ? cleanUrl.split(',').last : cleanUrl;
+          cleanBase64 = cleanBase64.replaceAll(RegExp(r'\s+'), '');
+          cachedBytes = base64Decode(cleanBase64);
+          if (_decodedImageCache.length > 50) {
+            _decodedImageCache.clear();
+          }
+          _decodedImageCache[cleanUrl] = cachedBytes;
+        }
+        return Image.memory(
+          cachedBytes,
+          fit: fit,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => _buildBrokenProofIcon(),
+        );
+      } catch (e) {
+        debugPrint('Base64 incident image decoding failed: $e');
+        return _buildBrokenProofIcon();
+      }
+    }
+    return _buildBrokenProofIcon();
+  }
+
   void _showSettleLocallyDialog(IncidentReportModel inc) {
     final notesController = TextEditingController();
+    bool isSubmitting = false;
+    String? errorMessage;
+    String? validationError;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: AppColors.surface,
-        titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 28),
-        actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.statusOptimalBg,
-                borderRadius: BorderRadius.circular(10),
+      barrierDismissible: !isSubmitting,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: AppColors.surface,
+          titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 28),
+          actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.statusOptimalBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.handshake_rounded, color: AppColors.accentBlue, size: 24),
               ),
-              child: const Icon(Icons.handshake_rounded, color: AppColors.accentBlue, size: 24),
-            ),
-            const SizedBox(width: 14),
-            const Expanded(
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Settle Worker Issue Locally',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Resolve this issue at the supervisor level without administrative penalty.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 580,
+            child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Settle Worker Issue Locally',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  if (errorMessage != null) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerBg,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.brightRed.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: AppColors.brightRed, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              errorMessage!,
+                              style: const TextStyle(fontSize: 12, color: AppColors.dangerText, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  // Summary Box
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceSubtle,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildModalDetailTile(
+                                icon: Icons.person_rounded,
+                                label: 'REPORTED WORKER',
+                                value: inc.reportedName,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildModalDetailTile(
+                                icon: Icons.warning_amber_rounded,
+                                label: 'ISSUE CATEGORY',
+                                value: inc.issueType,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Worker Statement: "${inc.description}"',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontStyle: FontStyle.italic, height: 1.3),
+                          ),
+                        ),
+                        _buildIncidentProofThumbnail(inc.imageUrl, height: 120),
+                      ],
+                    ),
                   ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Resolve this issue at the supervisor level without administrative penalty.',
-                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                  const SizedBox(height: 16),
+
+                  const Text('Supervisor Settlement Action & Notes *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: notesController,
+                    maxLines: 3,
+                    enabled: !isSubmitting,
+                    onChanged: (_) {
+                      if (validationError != null) {
+                        setDialogState(() => validationError = null);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Conducted verbal counseling, re-balanced cleaning sector rotation, and issued verbal reminder.',
+                      errorText: validationError,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: Row(
+                children: [
+                  AppButton(
+                    label: 'Cancel',
+                    variant: ButtonVariant.secondary,
+                    icon: Icons.close_rounded,
+                    onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                  ),
+                  const Spacer(),
+                  AppButton(
+                    label: isSubmitting ? 'Saving...' : 'Confirm Local Settlement',
+                    variant: ButtonVariant.primary,
+                    icon: isSubmitting ? null : Icons.check_circle_outline,
+                    isLoading: isSubmitting,
+                    onPressed: isSubmitting
+                        ? null
+                        : () async {
+                            final notes = notesController.text.trim();
+                            if (notes.isEmpty) {
+                              setDialogState(() => validationError = 'Settlement notes are mandatory.');
+                              return;
+                            }
+                            setDialogState(() {
+                              isSubmitting = true;
+                              errorMessage = null;
+                              validationError = null;
+                            });
+                            try {
+                              final currentUser = ref.read(currentUserProvider);
+                              await ref.read(dataRepositoryProvider).settleIncidentLocally(
+                                    inc.reportId,
+                                    supervisorId: currentUser.userId,
+                                    supervisorName: currentUser.fullName,
+                                    notes: notes,
+                                  );
+                              ref.invalidate(incidentsProvider);
+                              if (dialogCtx.mounted) {
+                                Navigator.pop(dialogCtx);
+                              }
+                              if (mounted) {
+                                ToastNotification.show(
+                                  this.context,
+                                  message: 'Worker issue settled locally by Supervisor ${currentUser.fullName}.',
+                                  type: ToastType.success,
+                                );
+                              }
+                            } catch (e) {
+                              if (dialogCtx.mounted) {
+                                setDialogState(() {
+                                  isSubmitting = false;
+                                  errorMessage = 'Failed to settle issue locally: $e';
+                                });
+                              }
+                            }
+                          },
                   ),
                 ],
               ),
             ),
           ],
         ),
-        content: SizedBox(
-          width: 580,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Summary Box
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceSubtle,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildModalDetailTile(
-                              icon: Icons.person_rounded,
-                              label: 'REPORTED WORKER',
-                              value: inc.reportedName,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildModalDetailTile(
-                              icon: Icons.warning_amber_rounded,
-                              label: 'ISSUE CATEGORY',
-                              value: inc.issueType,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Worker Statement: "${inc.description}"',
-                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontStyle: FontStyle.italic, height: 1.3),
-                        ),
-                      ),
-                      _buildIncidentProofThumbnail(inc.imageUrl, height: 120),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                const Text('Supervisor Settlement Action & Notes *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: notesController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. Conducted verbal counseling, re-balanced cleaning sector rotation, and issued verbal reminder.',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: Row(
-              children: [
-                AppButton(
-                  label: 'Cancel',
-                  variant: ButtonVariant.secondary,
-                  icon: Icons.close_rounded,
-                  onPressed: () => Navigator.pop(context),
-                ),
-                const Spacer(),
-                AppButton(
-                  label: 'Confirm Local Settlement',
-                  variant: ButtonVariant.primary,
-                  icon: Icons.check_circle_outline,
-                  onPressed: () async {
-                    final notes = notesController.text.trim();
-                    if (notes.isEmpty) {
-                      ToastNotification.show(context, message: 'Settlement notes are mandatory.', type: ToastType.error);
-                      return;
-                    }
-                    Navigator.pop(context);
-                    try {
-                      final currentUser = ref.read(currentUserProvider);
-                      await ref.read(dataRepositoryProvider).settleIncidentLocally(
-                            inc.reportId,
-                            supervisorId: currentUser.userId,
-                            supervisorName: currentUser.fullName,
-                            notes: notes,
-                          );
-                      ref.invalidate(incidentsProvider);
-                      if (mounted) {
-                        ToastNotification.show(
-                          this.context,
-                          message: 'Worker issue settled locally by Supervisor ${currentUser.fullName}.',
-                          type: ToastType.success,
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ToastNotification.show(this.context, message: 'Failed to settle issue locally: $e', type: ToastType.error);
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 
   void _showEscalateToAdminDialog(IncidentReportModel inc) {
     final remarksController = TextEditingController();
+    bool isSubmitting = false;
+    String? errorMessage;
+    String? validationError;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: AppColors.surface,
-        titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 28),
-        actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.dangerBg,
-                borderRadius: BorderRadius.circular(10),
+      barrierDismissible: !isSubmitting,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: AppColors.surface,
+          titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 28),
+          actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.dangerBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.arrow_upward_rounded, color: AppColors.brightRed, size: 24),
               ),
-              child: const Icon(Icons.arrow_upward_rounded, color: AppColors.brightRed, size: 24),
-            ),
-            const SizedBox(width: 14),
-            const Expanded(
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Escalate Worker Issue to Central Admin',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Forward severe misconduct report to City Administration for formal review.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 580,
+            child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Escalate Worker Issue to Central Admin',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  if (errorMessage != null) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerBg,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.brightRed.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: AppColors.brightRed, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              errorMessage!,
+                              style: const TextStyle(fontSize: 12, color: AppColors.dangerText, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  // Warning Banner
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.dangerBg,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.brightRed.withValues(alpha: 0.3)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, size: 20, color: AppColors.brightRed),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Escalating will notify Central Admin and generate an official transmittal memo.',
+                            style: TextStyle(fontSize: 12, color: AppColors.dangerText, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Forward severe misconduct report to City Administration for formal review.',
-                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                  const SizedBox(height: 14),
+
+                  // Summary
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceSubtle,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildModalDetailTile(
+                                icon: Icons.person_rounded,
+                                label: 'REPORTED WORKER',
+                                value: inc.reportedName,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildModalDetailTile(
+                                icon: Icons.report_problem_outlined,
+                                label: 'ALLEGATION',
+                                value: inc.issueType,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Reported Behavior: "${inc.description}"',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontStyle: FontStyle.italic),
+                        ),
+                        _buildIncidentProofThumbnail(inc.imageUrl, height: 120),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  const Text('Supervisor Escalation Justification *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: remarksController,
+                    maxLines: 3,
+                    enabled: !isSubmitting,
+                    onChanged: (_) {
+                      if (validationError != null) {
+                        setDialogState(() => validationError = null);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'Describe why local intervention is insufficient (e.g. repeated post abandonment, gross insubordination)...',
+                      errorText: validationError,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: Row(
+                children: [
+                  AppButton(
+                    label: 'Cancel',
+                    variant: ButtonVariant.secondary,
+                    icon: Icons.close_rounded,
+                    onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                  ),
+                  const Spacer(),
+                  AppButton(
+                    label: isSubmitting ? 'Escalating...' : 'Escalate to Admin',
+                    variant: ButtonVariant.danger,
+                    icon: isSubmitting ? null : Icons.arrow_upward_rounded,
+                    isLoading: isSubmitting,
+                    onPressed: isSubmitting
+                        ? null
+                        : () async {
+                            final remarks = remarksController.text.trim();
+                            if (remarks.isEmpty) {
+                              setDialogState(() => validationError = 'Escalation justification is mandatory.');
+                              return;
+                            }
+                            setDialogState(() {
+                              isSubmitting = true;
+                              errorMessage = null;
+                              validationError = null;
+                            });
+                            try {
+                              final currentUser = ref.read(currentUserProvider);
+                              await ref.read(dataRepositoryProvider).escalateIncidentToAdmin(
+                                    inc.reportId,
+                                    supervisorId: currentUser.userId,
+                                    supervisorName: currentUser.fullName,
+                                    notes: remarks,
+                                  );
+                              ref.invalidate(incidentsProvider);
+                              if (dialogCtx.mounted) {
+                                Navigator.pop(dialogCtx);
+                              }
+                              if (mounted) {
+                                ToastNotification.show(
+                                  this.context,
+                                  message: 'Incident escalated to Central Admin with transmittal memo dispatched.',
+                                  type: ToastType.info,
+                                );
+                              }
+                            } catch (e) {
+                              if (dialogCtx.mounted) {
+                                setDialogState(() {
+                                  isSubmitting = false;
+                                  errorMessage = 'Failed to escalate incident: $e';
+                                });
+                              }
+                            }
+                          },
                   ),
                 ],
               ),
             ),
           ],
         ),
-        content: SizedBox(
-          width: 580,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Warning Banner
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.dangerBg,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.brightRed.withValues(alpha: 0.3)),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.warning_amber_rounded, size: 20, color: AppColors.brightRed),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Escalating will notify Central Admin and generate an official transmittal memo.',
-                          style: TextStyle(fontSize: 12, color: AppColors.dangerText, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // Summary
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceSubtle,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildModalDetailTile(
-                              icon: Icons.person_rounded,
-                              label: 'REPORTED WORKER',
-                              value: inc.reportedName,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildModalDetailTile(
-                              icon: Icons.report_problem_outlined,
-                              label: 'ALLEGATION',
-                              value: inc.issueType,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Reported Behavior: "${inc.description}"',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontStyle: FontStyle.italic),
-                      ),
-                      _buildIncidentProofThumbnail(inc.imageUrl, height: 120),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                const Text('Supervisor Escalation Justification *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: remarksController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'Describe why local intervention is insufficient (e.g. repeated post abandonment, gross insubordination)...',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: Row(
-              children: [
-                AppButton(
-                  label: 'Cancel',
-                  variant: ButtonVariant.secondary,
-                  icon: Icons.close_rounded,
-                  onPressed: () => Navigator.pop(context),
-                ),
-                const Spacer(),
-                AppButton(
-                  label: 'Escalate to Admin',
-                  variant: ButtonVariant.danger,
-                  icon: Icons.arrow_upward_rounded,
-                  onPressed: () async {
-                    final remarks = remarksController.text.trim();
-                    if (remarks.isEmpty) {
-                      ToastNotification.show(context, message: 'Escalation justification is mandatory.', type: ToastType.error);
-                      return;
-                    }
-                    Navigator.pop(context);
-                    try {
-                      final currentUser = ref.read(currentUserProvider);
-                      await ref.read(dataRepositoryProvider).escalateIncidentToAdmin(
-                            inc.reportId,
-                            supervisorId: currentUser.userId,
-                            supervisorName: currentUser.fullName,
-                            notes: remarks,
-                          );
-                      ref.invalidate(incidentsProvider);
-                      if (mounted) {
-                        ToastNotification.show(
-                          this.context,
-                          message: 'Incident escalated to Central Admin with transmittal memo dispatched.',
-                          type: ToastType.info,
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ToastNotification.show(this.context, message: 'Failed to escalate incident: $e', type: ToastType.error);
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 
   void _showAdminResolveDialog(IncidentReportModel inc) {
     final resolutionController = TextEditingController();
+    bool isSubmitting = false;
+    String? errorMessage;
+    String? validationError;
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: AppColors.surface,
-        titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 28),
-        actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.statusOptimalBg,
-                borderRadius: BorderRadius.circular(10),
+      barrierDismissible: !isSubmitting,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: AppColors.surface,
+          titlePadding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 28),
+          actionsPadding: const EdgeInsets.fromLTRB(28, 16, 28, 24),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.statusOptimalBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.gavel_rounded, color: AppColors.primaryNavy, size: 24),
               ),
-              child: const Icon(Icons.gavel_rounded, color: AppColors.primaryNavy, size: 24),
-            ),
-            const SizedBox(width: 14),
-            const Expanded(
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Administrative Incident Resolution',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Log final administrative decision or disciplinary action taken for this incident.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 580,
+            child: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Administrative Incident Resolution',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  if (errorMessage != null) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerBg,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.brightRed.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: AppColors.brightRed, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              errorMessage!,
+                              style: const TextStyle(fontSize: 12, color: AppColors.dangerText, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceSubtle,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildModalDetailTile(
+                                icon: Icons.person_rounded,
+                                label: 'REPORTED WORKER',
+                                value: inc.reportedName,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildModalDetailTile(
+                                icon: Icons.warning_amber_rounded,
+                                label: 'ISSUE TYPE',
+                                value: inc.issueType,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (inc.supervisorNotes != null) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.comment_outlined, size: 16, color: AppColors.textMuted),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Supervisor Remarks: ${inc.supervisorNotes}',
+                                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        _buildIncidentProofThumbnail(inc.imageUrl, height: 140),
+                      ],
+                    ),
                   ),
-                  SizedBox(height: 2),
-                  Text(
-                    'Log final administrative decision or disciplinary action taken for this incident.',
-                    style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                  const SizedBox(height: 16),
+
+                  const Text('Final Administrative Sanction / Action Log *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: resolutionController,
+                    maxLines: 3,
+                    enabled: !isSubmitting,
+                    onChanged: (_) {
+                      if (validationError != null) {
+                        setDialogState(() => validationError = null);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      hintText: 'e.g. 1st Written Warning issued and employee scheduled for administrative review.',
+                      errorText: validationError,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: Row(
+                children: [
+                  AppButton(
+                    label: 'Cancel',
+                    variant: ButtonVariant.secondary,
+                    icon: Icons.close_rounded,
+                    onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                  ),
+                  const Spacer(),
+                  AppButton(
+                    label: isSubmitting ? 'Saving...' : 'Log Resolution',
+                    variant: ButtonVariant.primary,
+                    icon: isSubmitting ? null : Icons.check_circle_outline,
+                    isLoading: isSubmitting,
+                    onPressed: isSubmitting
+                        ? null
+                        : () async {
+                            final res = resolutionController.text.trim();
+                            if (res.isEmpty) {
+                              setDialogState(() => validationError = 'Resolution notes are mandatory.');
+                              return;
+                            }
+                            setDialogState(() {
+                              isSubmitting = true;
+                              errorMessage = null;
+                              validationError = null;
+                            });
+                            try {
+                              final currentUser = ref.read(currentUserProvider);
+                              await ref.read(dataRepositoryProvider).resolveIncidentByAdmin(
+                                    inc.reportId,
+                                    adminId: currentUser.userId,
+                                    resolutionNotes: res,
+                                  );
+                              ref.invalidate(incidentsProvider);
+                              if (dialogCtx.mounted) {
+                                Navigator.pop(dialogCtx);
+                              }
+                              if (mounted) {
+                                ToastNotification.show(this.context, message: 'Incident officially resolved and logged.', type: ToastType.success);
+                              }
+                            } catch (e) {
+                              if (dialogCtx.mounted) {
+                                setDialogState(() {
+                                  isSubmitting = false;
+                                  errorMessage = 'Failed to resolve incident: $e';
+                                });
+                              }
+                            }
+                          },
                   ),
                 ],
               ),
             ),
           ],
         ),
-        content: SizedBox(
-          width: 580,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceSubtle,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildModalDetailTile(
-                              icon: Icons.person_rounded,
-                              label: 'REPORTED WORKER',
-                              value: inc.reportedName,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _buildModalDetailTile(
-                              icon: Icons.warning_amber_rounded,
-                              label: 'ISSUE TYPE',
-                              value: inc.issueType,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (inc.supervisorNotes != null) ...[
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.comment_outlined, size: 16, color: AppColors.textMuted),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Supervisor Remarks: ${inc.supervisorNotes}',
-                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      _buildIncidentProofThumbnail(inc.imageUrl, height: 140),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                const Text('Final Administrative Sanction / Action Log *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: resolutionController,
-                  maxLines: 3,
-                  decoration: InputDecoration(
-                    hintText: 'e.g. 1st Written Warning issued and employee scheduled for administrative review.',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            child: Row(
-              children: [
-                AppButton(
-                  label: 'Cancel',
-                  variant: ButtonVariant.secondary,
-                  icon: Icons.close_rounded,
-                  onPressed: () => Navigator.pop(context),
-                ),
-                const Spacer(),
-                AppButton(
-                  label: 'Log Resolution',
-                  variant: ButtonVariant.primary,
-                  icon: Icons.check_circle_outline,
-                  onPressed: () async {
-                    final res = resolutionController.text.trim();
-                    if (res.isEmpty) {
-                      ToastNotification.show(context, message: 'Resolution notes are mandatory.', type: ToastType.error);
-                      return;
-                    }
-                    Navigator.pop(context);
-                    try {
-                      final currentUser = ref.read(currentUserProvider);
-                      await ref.read(dataRepositoryProvider).resolveIncidentByAdmin(
-                            inc.reportId,
-                            adminId: currentUser.userId,
-                            resolutionNotes: res,
-                          );
-                      ref.invalidate(incidentsProvider);
-                      if (mounted) {
-                        ToastNotification.show(this.context, message: 'Incident officially resolved and logged.', type: ToastType.success);
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ToastNotification.show(this.context, message: 'Failed to resolve incident: $e', type: ToastType.error);
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1048,7 +1340,7 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
                                         const Icon(Icons.access_time_rounded, size: 14, color: AppColors.textMuted),
                                         const SizedBox(width: 4),
                                         Text(
-                                          'Report ID: ${inc.reportId}',
+                                          DateFormat('MMM d, yyyy • h:mm a').format(inc.createdAt),
                                           style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                                         ),
                                       ],
@@ -1060,151 +1352,202 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
                           ),
                           const SizedBox(height: 16),
 
-                          // 3-Card Information Summary Row
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildInfoTile(
-                                  icon: Icons.person_rounded,
-                                  label: 'SUBJECT WORKER',
-                                  value: inc.reportedName,
-                                  badge: 'Subject',
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildInfoTile(
-                                  icon: Icons.record_voice_over_outlined,
-                                  label: 'REPORTED BY',
-                                  value: inc.reporterName,
-                                  badge: 'Witness / Filer',
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildInfoTile(
-                                  icon: Icons.place_outlined,
-                                  label: 'WORK AREA',
-                                  value: inc.areaName ?? 'Sector',
-                                  badge: 'Location',
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              final hasProofPhoto = inc.imageUrl != null && inc.imageUrl!.trim().isNotEmpty;
+                              final isWide = constraints.maxWidth >= 840;
 
-                          // Incident Statement Box
-                          const Text('Statement of Incident', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                          const SizedBox(height: 6),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: AppColors.surfaceSubtle,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.border),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Icon(Icons.format_quote_rounded, size: 20, color: AppColors.textMuted),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    inc.description,
-                                    style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          _buildIncidentProofThumbnail(inc.imageUrl),
-
-                          // Supervisor Action Box
-                          if (inc.supervisorNotes != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: isEscalated ? AppColors.dangerBg.withValues(alpha: 0.6) : AppColors.statusOptimalBg,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: isEscalated
-                                      ? AppColors.brightRed.withValues(alpha: 0.25)
-                                      : AppColors.accentBlue.withValues(alpha: 0.25),
-                                ),
-                              ),
-                              child: Row(
+                              final infoAndStatement = Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(
-                                    isEscalated ? Icons.campaign_rounded : Icons.handshake_rounded,
-                                    size: 20,
-                                    color: isEscalated ? AppColors.brightRed : AppColors.accentBlue,
+                                  // 3-Card Information Summary Row
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildInfoTile(
+                                          icon: Icons.person_rounded,
+                                          label: 'SUBJECT WORKER',
+                                          value: inc.reportedName,
+                                          badge: 'Subject',
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _buildInfoTile(
+                                          icon: Icons.record_voice_over_outlined,
+                                          label: 'REPORTED BY',
+                                          value: inc.reporterName,
+                                          badge: 'Witness / Filer',
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: _buildInfoTile(
+                                          icon: Icons.place_outlined,
+                                          label: 'WORK AREA',
+                                          value: inc.areaName ?? 'Sector',
+                                          badge: 'Location',
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
+                                  const SizedBox(height: 14),
+
+                                  // Incident Statement Box
+                                  const Text('Statement of Incident', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.surfaceSubtle,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: AppColors.border),
+                                    ),
+                                    child: Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          isEscalated
-                                              ? 'Supervisor Escalation Remarks (Forwarded to Admin):'
-                                              : 'Supervisor Local Settlement Log (${inc.settledBy ?? "Field Supervisor"}):',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: isEscalated ? AppColors.dangerText : AppColors.statusOptimalText,
+                                        const Icon(Icons.format_quote_rounded, size: 20, color: AppColors.textMuted),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            inc.description,
+                                            style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4),
                                           ),
                                         ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          inc.supervisorNotes!,
-                                          style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.3),
-                                        ),
                                       ],
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                          ],
 
-                          // Admin Official Resolution Box
-                          if (inc.adminResolutionNotes != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: AppColors.successBg,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppColors.accentEmerald.withValues(alpha: 0.3)),
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(Icons.verified_rounded, size: 20, color: AppColors.accentEmerald),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          'Central Admin Official Action & Resolution:',
-                                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.successText),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Text(
-                                          inc.adminResolutionNotes!,
-                                          style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.3),
-                                        ),
-                                      ],
+                                  // If narrow and has photo proof, display inline
+                                  if (!isWide && hasProofPhoto) ...[
+                                    const SizedBox(height: 12),
+                                    _buildIncidentProofThumbnail(
+                                      inc.imageUrl,
+                                      height: 200,
+                                      title: '${inc.reportedName} - ${inc.issueType}',
                                     ),
-                                  ),
+                                  ],
+
+                                  // Supervisor Action Box
+                                  if (inc.supervisorNotes != null) ...[
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                        color: isEscalated ? AppColors.dangerBg.withValues(alpha: 0.6) : AppColors.statusOptimalBg,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(
+                                          color: isEscalated
+                                              ? AppColors.brightRed.withValues(alpha: 0.25)
+                                              : AppColors.accentBlue.withValues(alpha: 0.25),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(
+                                            isEscalated ? Icons.campaign_rounded : Icons.handshake_rounded,
+                                            size: 20,
+                                            color: isEscalated ? AppColors.brightRed : AppColors.accentBlue,
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  isEscalated
+                                                      ? 'Supervisor Escalation Remarks (Forwarded to Admin):'
+                                                      : 'Supervisor Local Settlement Log (${inc.settledBy ?? "Field Supervisor"}):',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isEscalated ? AppColors.dangerText : AppColors.statusOptimalText,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  inc.supervisorNotes!,
+                                                  style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.3),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+
+                                  // Admin Official Resolution Box
+                                  if (inc.adminResolutionNotes != null) ...[
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.successBg,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: AppColors.accentEmerald.withValues(alpha: 0.3)),
+                                      ),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Icon(Icons.verified_rounded, size: 20, color: AppColors.accentEmerald),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                const Text(
+                                                  'Central Admin Official Action & Resolution:',
+                                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.successText),
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  inc.adminResolutionNotes!,
+                                                  style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.3),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ],
-                              ),
-                            ),
-                          ],
+                              );
+
+                              if (isWide && hasProofPhoto) {
+                                return Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(child: infoAndStatement),
+                                    const SizedBox(width: 20),
+                                    SizedBox(
+                                      width: 280,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'Attached Photo Proof',
+                                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          _buildIncidentProofThumbnail(
+                                            inc.imageUrl,
+                                            height: 220,
+                                            title: '${inc.reportedName} - ${inc.issueType}',
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              }
+
+                              return infoAndStatement;
+                            },
+                          ),
 
                           // Action Footer
                           const SizedBox(height: 14),
@@ -1345,7 +1688,7 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
     );
   }
 
-  Widget _buildIncidentProofThumbnail(String? imageUrl, {double height = 140}) {
+  Widget _buildIncidentProofThumbnail(String? imageUrl, {double height = 160, String? title}) {
     if (imageUrl == null || imageUrl.trim().isEmpty) return const SizedBox.shrink();
 
     final cleanUrl = imageUrl.trim();
@@ -1358,31 +1701,10 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
         cleanUrl.startsWith('file://') ||
         (cleanUrl.startsWith('/') && !isNetwork && !isBase64);
 
-    Widget? imageContent;
-    if (isNetwork) {
-      imageContent = Image.network(
-        cleanUrl,
-        fit: BoxFit.cover,
-        errorBuilder: (_, _, _) => _buildBrokenProofIcon(),
-      );
-    } else if (isBase64) {
-      try {
-        String cleanBase64 = cleanUrl.contains(',') ? cleanUrl.split(',').last : cleanUrl;
-        cleanBase64 = cleanBase64.replaceAll(RegExp(r'\s+'), '');
-        final bytes = base64Decode(cleanBase64);
-        imageContent = Image.memory(
-          bytes,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => _buildBrokenProofIcon(),
-        );
-      } catch (e) {
-        debugPrint('Base64 incident image decoding failed: $e');
-        imageContent = null;
-      }
-    } else if (isLocalPath) {
+    if (isLocalPath) {
       final fileName = cleanUrl.contains('/') ? cleanUrl.split('/').last : cleanUrl;
       return Container(
-        margin: const EdgeInsets.only(top: 10),
+        margin: const EdgeInsets.only(top: 8),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: const Color(0xFF0F172A),
@@ -1404,42 +1726,48 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
       );
     }
 
-    if (imageContent == null) return const SizedBox.shrink();
+    if (!isNetwork && !isBase64) return const SizedBox.shrink();
 
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      height: height,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          imageContent,
-          Positioned(
-            bottom: 6,
-            right: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.65),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.camera_alt_outlined, size: 10, color: Colors.white70),
-                  SizedBox(width: 4),
-                  Text('ATTACHED PROOF PHOTO', style: TextStyle(fontSize: 9, color: Colors.white70, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _showPhotoLightbox(cleanUrl, title: title),
+        child: Container(
+          margin: const EdgeInsets.only(top: 8),
+          height: height,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
           ),
-        ],
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _buildRawImageWidget(cleanUrl, fit: BoxFit.cover),
+              Positioned(
+                bottom: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.zoom_in_rounded, size: 13, color: Colors.white),
+                      SizedBox(width: 4),
+                      Text('Click to enlarge', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

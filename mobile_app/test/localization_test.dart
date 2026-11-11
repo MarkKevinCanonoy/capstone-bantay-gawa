@@ -45,5 +45,20 @@ void main() {
       expect(AppTranslations.get('outside_zone_badge', AppLanguage.cebuano), equals('GAWAS SA ZONE'));
       expect(AppTranslations.get('outside_zone_badge', AppLanguage.english), equals('OUTSIDE ZONE'));
     });
+
+    test('Resolves log_attendance_sub and camera standby keys accurately', () {
+      final engSub = AppTranslations.get('log_attendance_sub', AppLanguage.english);
+      expect(engSub, equals('Time In, Break, Resume, or Time Out'));
+      expect(engSub, isNot(contains('Break-in')));
+      expect(engSub, isNot(contains('Break-out')));
+
+      final cebSub = AppTranslations.get('log_attendance_sub', AppLanguage.cebuano);
+      expect(cebSub, equals('Time-in, Pahuway, Balik Trabaho, o Time-out'));
+
+      expect(AppTranslations.get('open_camera', AppLanguage.english), equals('Open Camera'));
+      expect(AppTranslations.get('open_camera', AppLanguage.cebuano), equals('I-open ang Kamera'));
+      expect(AppTranslations.get('close_camera', AppLanguage.english), equals('Close Camera'));
+      expect(AppTranslations.get('close_camera', AppLanguage.cebuano), equals('I-off ang Kamera'));
+    });
   });
 }

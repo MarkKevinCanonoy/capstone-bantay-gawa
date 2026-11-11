@@ -34,6 +34,8 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
   CameraController? _cameraController;
   CameraLensDirection _currentLens = CameraLensDirection.front;
   bool _isCameraReady = false;
+  bool _isCameraEnabled = false;
+  bool _isCameraInitializing = false;
   bool _isProcessing = false;
   LatLng? _currentPosition = LocationTrackingService.instance.currentPositionNotifier.value;
   bool _isInsideGeofence = LocationTrackingService.instance.isInsideGeofenceNotifier.value;
@@ -41,9 +43,6 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
   @override
   void initState() {
     super.initState();
-    if (widget.isActive) {
-      _initCamera();
-    }
     LocationTrackingService.instance.isInsideGeofenceNotifier.addListener(_onGeofenceChanged);
     LocationTrackingService.instance.currentPositionNotifier.addListener(_onPositionChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -56,7 +55,6 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive != oldWidget.isActive) {
       if (widget.isActive) {
-        _initCamera();
         _checkLocationAndGeofence();
       } else {
         _disposeCamera();
@@ -64,11 +62,34 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     }
   }
 
+  Future<void> _openCamera() async {
+    if (_isCameraInitializing || _isCameraReady) return;
+    setState(() {
+      _isCameraEnabled = true;
+      _isCameraInitializing = true;
+    });
+    await _initCamera();
+    if (mounted) {
+      setState(() => _isCameraInitializing = false);
+    }
+  }
+
+  Future<void> _closeCamera() async {
+    setState(() {
+      _isCameraEnabled = false;
+      _isCameraInitializing = false;
+    });
+    await _disposeCamera();
+  }
+
   Future<void> _disposeCamera() async {
     final controller = _cameraController;
     _cameraController = null;
     if (mounted) {
-      setState(() => _isCameraReady = false);
+      setState(() {
+        _isCameraReady = false;
+        _isCameraInitializing = false;
+      });
     }
     await controller?.dispose();
   }
@@ -256,14 +277,22 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
 
       // Photo and Biometrics verification is required ONLY during time-in (skip biometric match if substitute)
       if (actionType == 'time-in') {
+        if (!_isCameraEnabled || !_isCameraReady || _cameraController == null) {
+          ToastNotification.showInfo(
+            context,
+            lang == AppLanguage.cebuano
+                ? 'Gipasiga ang kamera alang sa verification. Palihog iposisyon ang imong nawong sa viewfinder.'
+                : 'Opening camera for facial verification. Please position your face in the viewfinder.',
+          );
+          await _openCamera();
+          setState(() => _isProcessing = false);
+          return;
+        }
+
         // 1. Capture live photo from camera
         Uint8List rawBytes;
-        if (_isCameraReady && _cameraController != null) {
-          final XFile photo = await _cameraController!.takePicture();
-          rawBytes = await photo.readAsBytes();
-        } else {
-          rawBytes = Uint8List.fromList(List.generate(200 * 200 * 3, (i) => 100));
-        }
+        final XFile photo = await _cameraController!.takePicture();
+        rawBytes = await photo.readAsBytes();
 
         if (!isSubstitute) {
           // 2. Strict Biometric Enrollment Check
@@ -474,7 +503,7 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
         ),
         const SizedBox(height: 16),
 
-        // Live Camera Viewfinder Box with guide (FittedBox with aspect ratio to prevent squashing)
+        // Live Camera Viewfinder Box with on-demand standby mode
         Container(
           height: (MediaQuery.sizeOf(context).height * 0.28).clamp(180.0, 240.0),
           decoration: BoxDecoration(
@@ -484,98 +513,141 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(14),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                _isCameraReady && _cameraController != null
-                    ? FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: _cameraController!.value.previewSize?.height ?? 300,
-                          height: _cameraController!.value.previewSize?.width ?? 400,
-                          child: CameraPreview(_cameraController!),
-                        ),
-                      )
-                    : const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.face_retouching_natural, size: 76, color: Color(0xFF6CC5FF)),
-                            SizedBox(height: 8),
-                            Text('Face viewfinder ready', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                          ],
-                        ),
-                      ),
-                if (_currentLens == CameraLensDirection.front) ...[
-                  Center(
-                    child: Container(
-                      width: 170,
-                      height: 205,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.white60, width: 2),
-                        borderRadius: BorderRadius.circular(100),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 12,
-                    left: 14,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        AppTranslations.get('position_face', lang),
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ],
-                Positioned(
-                  top: 12,
-                  right: 14,
-                  child: Material(
-                    color: Colors.black.withValues(alpha: 0.65),
-                    borderRadius: BorderRadius.circular(24),
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(24),
-                      onTap: _toggleCamera,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.flip_camera_android, color: Colors.white, size: 18),
-                            SizedBox(width: 4),
-                            Text(
-                              'FLIP',
-                              style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+            child: !_isCameraEnabled
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.videocam_outlined, size: 44, color: Color(0xFF6CC5FF)),
+                          const SizedBox(height: 8),
+                          Text(
+                            AppTranslations.get('camera_standby_hint', lang),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.accentBlue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                             ),
-                          ],
-                        ),
+                            onPressed: _openCamera,
+                            icon: _isCameraInitializing
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.videocam_rounded, size: 18),
+                            label: Text(
+                              _isCameraInitializing
+                                  ? (lang == AppLanguage.cebuano ? 'Gi-ablihan...' : 'Opening...')
+                                  : AppTranslations.get('open_camera', lang),
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                  )
+                : Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _isCameraReady && _cameraController != null
+                          ? FittedBox(
+                              fit: BoxFit.cover,
+                              child: SizedBox(
+                                width: _cameraController!.value.previewSize?.height ?? 300,
+                                height: _cameraController!.value.previewSize?.width ?? 400,
+                                child: CameraPreview(_cameraController!),
+                              ),
+                            )
+                          : const Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  CircularProgressIndicator(color: AppColors.accentBlue),
+                                  SizedBox(height: 10),
+                                  Text('Starting camera...', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                      if (_currentLens == CameraLensDirection.front)
+                        Positioned(
+                          top: 12,
+                          left: 14,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.65),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              AppTranslations.get('position_face', lang),
+                              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                      // Top-right: FLIP camera button only
+                      Positioned(
+                        top: 12,
+                        right: 14,
+                        child: Material(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(24),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: _toggleCamera,
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.flip_camera_android, color: Colors.white, size: 16),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'FLIP',
+                                    style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Bottom-right: Close camera button (no collision with top labels)
+                      Positioned(
+                        bottom: 12,
+                        right: 14,
+                        child: Material(
+                          color: Colors.black.withValues(alpha: 0.65),
+                          borderRadius: BorderRadius.circular(24),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: _closeCamera,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.videocam_off_rounded, color: Colors.white, size: 16),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    AppTranslations.get('close_camera', lang),
+                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Positioned(
-                  bottom: 12,
-                  left: 14,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'GPS: ${_currentPosition?.latitude.toStringAsFixed(4) ?? "11.0050"}, ${_currentPosition?.longitude.toStringAsFixed(4) ?? "124.6075"}',
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
         if (approvedLeaveToday != null)

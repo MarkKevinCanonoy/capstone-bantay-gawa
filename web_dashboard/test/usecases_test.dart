@@ -415,7 +415,7 @@ void main() {
 
     // Verify default Attendance category and columns
     expect(find.text('WORKER NAME'), findsOneWidget);
-    expect(find.text('GEOFENCE ACCURACY'), findsOneWidget);
+    expect(find.text('GEOFENCE COMPLIANCE'), findsOneWidget);
 
     // Open Report Type dropdown (first dropdown) and select Area Performance
     final reportTypeDropdown = find.byType(DropdownButtonFormField<String>).first;

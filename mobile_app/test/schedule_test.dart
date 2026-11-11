@@ -81,12 +81,13 @@ void main() {
     test('canTimeInNow strictly enforces shift window and early buffer', () {
       final schedule = 'Mon-Fri 07:00 - 12:00';
 
-      // 1. At 21:48 (9:48 PM) on Monday - Shift is over
+      // 1. At 21:48 (9:48 PM) on Monday - Shift started earlier, allowed as late time-in
       final eveningTime = DateTime(2026, 11, 2, 21, 48);
       final eveningEval = ScheduleHelper.evaluateShift(schedule: schedule, now: eveningTime);
-      final eveningValidation = ScheduleHelper.canTimeInNow(eveningEval);
-      expect(eveningValidation.allowed, isFalse);
-      expect(eveningValidation.reasonCeb, contains('Nahuman na'));
+      final eveningValidation = ScheduleHelper.canTimeInNow(eveningEval, now: eveningTime);
+      expect(eveningValidation.allowed, isTrue);
+      expect(eveningValidation.isLate, isTrue);
+      expect(eveningValidation.lateMinutes, greaterThan(0));
 
       // 2. At 06:15 AM on Monday (45m before start - too early)
       final earlyTime = DateTime(2026, 11, 2, 6, 15);

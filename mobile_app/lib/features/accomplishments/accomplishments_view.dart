@@ -39,6 +39,8 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
   CameraController? _cameraController;
   CameraLensDirection _currentLens = CameraLensDirection.back;
   bool _isCameraReady = false;
+  bool _isCameraEnabled = false;
+  bool _isCameraInitializing = false;
   bool _isCapturing = false;
   Uint8List? _watermarkedImageBytes;
   String? _savedImagePath;
@@ -50,30 +52,46 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
   @override
   void initState() {
     super.initState();
-    if (widget.isActive) {
-      _initCamera();
-    }
   }
 
   @override
   void didUpdateWidget(AccomplishmentsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive != oldWidget.isActive) {
-      if (widget.isActive) {
-        if (_watermarkedImageBytes == null) {
-          _initCamera();
-        }
-      } else {
+      if (!widget.isActive) {
         _disposeCamera();
       }
     }
+  }
+
+  Future<void> _openCamera() async {
+    if (_isCameraInitializing || _isCameraReady) return;
+    setState(() {
+      _isCameraEnabled = true;
+      _isCameraInitializing = true;
+    });
+    await _initCamera();
+    if (mounted) {
+      setState(() => _isCameraInitializing = false);
+    }
+  }
+
+  Future<void> _closeCamera() async {
+    setState(() {
+      _isCameraEnabled = false;
+      _isCameraInitializing = false;
+    });
+    await _disposeCamera();
   }
 
   Future<void> _disposeCamera() async {
     final controller = _cameraController;
     _cameraController = null;
     if (mounted) {
-      setState(() => _isCameraReady = false);
+      setState(() {
+        _isCameraReady = false;
+        _isCameraInitializing = false;
+      });
     }
     await controller?.dispose();
   }
@@ -81,12 +99,17 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
   Future<void> _initCamera() async {
     try {
       final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        if (mounted) setState(() => _isCameraReady = false);
+        return;
+      }
       final selectedCamera = cameras.firstWhere(
         (c) => c.lensDirection == _currentLens,
         orElse: () => cameras.first,
       );
-      _cameraController = CameraController(selectedCamera, ResolutionPreset.medium, enableAudio: false);
-      await _cameraController!.initialize();
+      final controller = CameraController(selectedCamera, ResolutionPreset.medium, enableAudio: false);
+      _cameraController = controller;
+      await controller.initialize();
       if (mounted) setState(() => _isCameraReady = true);
     } catch (_) {
       if (mounted) setState(() => _isCameraReady = false);
@@ -103,7 +126,7 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
       _isCameraReady = false;
     });
     await _cameraController?.dispose();
-    if (widget.isActive) {
+    if (_isCameraEnabled) {
       await _initCamera();
     }
   }
@@ -115,9 +138,6 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
       _capturedLat = null;
       _capturedLng = null;
     });
-    if (widget.isActive && (!_isCameraReady || _cameraController == null)) {
-      _initCamera();
-    }
   }
 
   @override
@@ -172,9 +192,11 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
       final filePath = '${tempDir.path}/acc_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final file = File(filePath);
       await file.writeAsBytes(watermarked);
+      await _disposeCamera();
 
       if (mounted) {
         setState(() {
+          _isCameraEnabled = false;
           _watermarkedImageBytes = watermarked;
           _savedImagePath = filePath;
           _capturedLat = lat;
@@ -497,92 +519,156 @@ class _AccomplishmentsViewState extends ConsumerState<AccomplishmentsView> {
                       )
                     : ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            _isCameraReady && _cameraController != null
-                                ? FittedBox(
-                                    fit: BoxFit.cover,
-                                    child: SizedBox(
-                                      width: _cameraController!.value.previewSize?.height ?? 300,
-                                      height: _cameraController!.value.previewSize?.width ?? 400,
-                                      child: CameraPreview(_cameraController!),
-                                    ),
-                                  )
-                                : Center(
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          _isCapturing ? Icons.hourglass_top : Icons.camera_alt_outlined,
-                                          color: Colors.white,
-                                          size: 36,
+                        child: !_isCameraEnabled
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.camera_alt_outlined, color: Colors.white70, size: 40),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        AppTranslations.get('camera_standby_hint', lang),
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      ElevatedButton.icon(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.accentBlue,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                                         ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          _isCapturing
-                                              ? 'Burning Watermark...'
-                                              : AppTranslations.get('tap_to_capture', lang),
-                                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                        onPressed: _openCamera,
+                                        icon: _isCameraInitializing
+                                            ? const SizedBox(
+                                                width: 14,
+                                                height: 14,
+                                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                              )
+                                            : const Icon(Icons.videocam_rounded, size: 18),
+                                        label: Text(
+                                          _isCameraInitializing
+                                              ? (lang == AppLanguage.cebuano ? 'Gi-ablihan...' : 'Opening...')
+                                              : AppTranslations.get('open_camera', lang),
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                                         ),
-                                        const SizedBox(height: 4),
-                                        const Text(
-                                          'Burns timestamp & GPS coordinates directly on image',
-                                          style: TextStyle(color: Colors.white54, fontSize: 9),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  _isCameraReady && _cameraController != null
+                                      ? FittedBox(
+                                          fit: BoxFit.cover,
+                                          child: SizedBox(
+                                            width: _cameraController!.value.previewSize?.height ?? 300,
+                                            height: _cameraController!.value.previewSize?.width ?? 400,
+                                            child: CameraPreview(_cameraController!),
+                                          ),
+                                        )
+                                      : Center(
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              if (_isCameraInitializing)
+                                                const CircularProgressIndicator(color: AppColors.accentBlue)
+                                              else
+                                                Icon(
+                                                  _isCapturing ? Icons.hourglass_top : Icons.camera_alt_outlined,
+                                                  color: Colors.white,
+                                                  size: 36,
+                                                ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                _isCapturing
+                                                    ? 'Burning Watermark...'
+                                                    : (_isCameraInitializing ? 'Starting camera...' : AppTranslations.get('tap_to_capture', lang)),
+                                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ],
+                                  // Top-right: FLIP camera button only
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: Material(
+                                      color: Colors.black.withValues(alpha: 0.65),
+                                      borderRadius: BorderRadius.circular(20),
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(20),
+                                        onTap: _toggleCamera,
+                                        child: const Padding(
+                                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.flip_camera_android, color: Colors.white, size: 16),
+                                              SizedBox(width: 4),
+                                              Text('FLIP', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
-                            // Camera Flip button in top-right (US-29)
-                            Positioned(
-                              top: 8,
-                              right: 8,
-                              child: Material(
-                                color: Colors.black.withValues(alpha: 0.65),
-                                borderRadius: BorderRadius.circular(20),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(20),
-                                  onTap: _toggleCamera,
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                  // Bottom Controls Bar (Close Camera on left, Take Proof Photo on right)
+                                  Positioned(
+                                    bottom: 10,
+                                    left: 10,
+                                    right: 10,
                                     child: Row(
-                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Icon(Icons.flip_camera_android, color: Colors.white, size: 16),
-                                        SizedBox(width: 4),
-                                        Text('FLIP', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                        Material(
+                                          color: Colors.black.withValues(alpha: 0.65),
+                                          borderRadius: BorderRadius.circular(20),
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.circular(20),
+                                            onTap: _closeCamera,
+                                            child: Padding(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  const Icon(Icons.videocam_off_rounded, color: Colors.white, size: 14),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    AppTranslations.get('close_camera', lang),
+                                                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        ElevatedButton.icon(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.accentGreen,
+                                            foregroundColor: Colors.white,
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                                          ),
+                                          onPressed: _isCapturing ? null : _captureAndWatermark,
+                                          icon: const Icon(Icons.camera_alt, size: 16),
+                                          label: Text(
+                                            _isCapturing
+                                                ? 'Saving...'
+                                                : (lang == AppLanguage.cebuano ? 'Kuhaa ang Litrato' : 'Take Proof Photo'),
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
-                                ),
+                                ],
                               ),
-                            ),
-                            // Capture trigger button at bottom
-                            Positioned(
-                              bottom: 10,
-                              left: 0,
-                              right: 0,
-                              child: Center(
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppColors.accentGreen,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                                  ),
-                                  onPressed: _isCapturing ? null : _captureAndWatermark,
-                                  icon: const Icon(Icons.camera_alt, size: 18),
-                                  label: Text(
-                                    _isCapturing
-                                        ? 'Saving...'
-                                        : (lang == AppLanguage.cebuano ? 'Kuhaa ang Litrato' : 'Take Proof Photo'),
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
               ),
               if (_watermarkedImageBytes != null && isOutsideZone) ...[

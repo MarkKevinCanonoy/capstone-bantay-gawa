@@ -221,7 +221,7 @@ void main() {
 
     // Verify Title & Subtitle
     expect(find.text('Attendance Verification'), findsOneWidget);
-    expect(find.textContaining('Daily on-device face recognition logs and geofence validation records'), findsOneWidget);
+    expect(find.textContaining('biometric time-in/time-out verification records'), findsOneWidget);
 
     // Verify Filter bar has personnel count and Sector: dropdown
     expect(find.textContaining('active personnel'), findsOneWidget);
