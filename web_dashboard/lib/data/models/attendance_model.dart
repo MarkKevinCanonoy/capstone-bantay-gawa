@@ -166,6 +166,9 @@ class DailyWorkerAttendance {
   final String dateKey; // 'YYYY-MM-DD'
   final List<AttendanceModel> punches;
 
+  final bool isOnLeave;
+  final String? leaveDetails;
+
   DailyWorkerAttendance({
     required this.userId,
     required this.workerName,
@@ -174,6 +177,8 @@ class DailyWorkerAttendance {
     required this.areaName,
     required this.dateKey,
     required this.punches,
+    this.isOnLeave = false,
+    this.leaveDetails,
   });
 
   String get initials {
@@ -187,7 +192,13 @@ class DailyWorkerAttendance {
   }
 
   AttendanceModel? get timeInPunch =>
-      punches.cast<AttendanceModel?>().firstWhere((p) => p?.actionType == 'time-in', orElse: () => null);
+      punches.cast<AttendanceModel?>().firstWhere(
+        (p) => p?.actionType == 'time-in' || p?.actionType == 'time-in-substitute',
+        orElse: () => null,
+      );
+
+  bool get isSubstitute =>
+      punches.any((p) => p.actionType == 'time-in-substitute' || p.workerName.contains('(Substitute)'));
 
   AttendanceModel? get breakInPunch =>
       punches.cast<AttendanceModel?>().firstWhere((p) => p?.actionType == 'break-in', orElse: () => null);
@@ -222,10 +233,71 @@ class DailyWorkerAttendance {
     return DateFormat('hh:mm a').format(p.timestamp);
   }
 
-  /// Current overall duty status: 'ON DUTY', 'ON BREAK', 'SHIFT COMPLETE', 'TIMED IN'
+  /// Returns the number of breaks initiated (break-in punches)
+  int get breakCount => punches.where((p) => p.actionType == 'break-in').length;
+
+  /// Calculate total break duration across all break-in and break-out pairs
+  Duration get totalBreakDuration {
+    Duration total = Duration.zero;
+    DateTime? currentBreakStart;
+
+    for (final p in punches) {
+      if (p.actionType == 'break-in') {
+        currentBreakStart = p.timestamp;
+      } else if (p.actionType == 'break-out' && currentBreakStart != null) {
+        total += p.timestamp.difference(currentBreakStart);
+        currentBreakStart = null;
+      }
+    }
+    // If currently on break and not yet timed out
+    if (currentBreakStart != null && timeOutPunch == null) {
+      total += DateTime.now().difference(currentBreakStart);
+    }
+    return total;
+  }
+
+  /// Total worked duration = (End Time - Time In) - Total Break Duration
+  Duration get totalWorkedDuration {
+    final start = timeInPunch?.timestamp;
+    if (start == null) return Duration.zero;
+
+    final end = timeOutPunch?.timestamp ?? DateTime.now();
+    final grossDuration = end.difference(start);
+    final net = grossDuration - totalBreakDuration;
+    return net.isNegative ? Duration.zero : net;
+  }
+
+  /// Formatted worked hours string (e.g., '7h 30m', '45m', '--')
+  String get formattedTotalHoursWorked {
+    if (timeInPunch == null) return '--';
+    final dur = totalWorkedDuration;
+    final hours = dur.inHours;
+    final minutes = dur.inMinutes.remainder(60);
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    }
+    return '${minutes}m';
+  }
+
+  /// Formatted break duration string
+  String get formattedTotalBreakTime {
+    final dur = totalBreakDuration;
+    if (dur.inMinutes <= 0) return '0m';
+    final hours = dur.inHours;
+    final minutes = dur.inMinutes.remainder(60);
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    }
+    return '${minutes}m';
+  }
+
+  /// Current overall duty status: 'ON DUTY', 'ON BREAK', 'SHIFT COMPLETE', 'ON LEAVE', 'NO TIME-IN'
   String get statusSummary {
+    if (isOnLeave) return 'ON LEAVE';
     if (timeOutPunch != null) return 'SHIFT COMPLETE';
-    if (breakInPunch != null && breakOutPunch == null) return 'ON BREAK';
+    if (punches.isNotEmpty && punches.last.actionType == 'break-in') {
+      return 'ON BREAK';
+    }
     if (timeInPunch != null) return 'ON DUTY';
     return 'NO TIME-IN';
   }

@@ -538,7 +538,8 @@ class SupabaseRepository implements DataRepository {
     try {
       final res = await _client.from('leave_requests').select('''
         *,
-        users:users!leave_requests_user_id_fkey(first_name, last_name)
+        users:users!leave_requests_user_id_fkey(first_name, last_name, assigned_area_name),
+        work_areas(name)
       ''').order('created_at', ascending: false);
 
       final list = (res as List).map((m) => LeaveRequestModel.fromJson(m as Map<String, dynamic>)).toList();

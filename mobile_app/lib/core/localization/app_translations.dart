@@ -118,20 +118,44 @@ class AppTranslations {
       AppLanguage.english: 'WARNING: You are outside the assigned zone boundary! Attendance logging is locked.',
     },
     'time_in': {
-      AppLanguage.cebuano: 'ORAS SA PAGSULOD (TIME-IN)',
-      AppLanguage.english: 'RECORD TIME-IN',
+      AppLanguage.cebuano: 'Pagsulod (Time In)',
+      AppLanguage.english: 'Time In',
     },
     'break_in': {
-      AppLanguage.cebuano: 'SUGOD SA PAHUWAY (BREAK-IN)',
-      AppLanguage.english: 'RECORD BREAK-IN',
+      AppLanguage.cebuano: 'Pahuway (Break)',
+      AppLanguage.english: 'Break',
     },
     'break_out': {
-      AppLanguage.cebuano: 'BALIK TRABAHO (BREAK-OUT)',
-      AppLanguage.english: 'RECORD BREAK-OUT',
+      AppLanguage.cebuano: 'Balik Trabaho (Resume)',
+      AppLanguage.english: 'Resume',
     },
     'time_out': {
-      AppLanguage.cebuano: 'ORAS SA PAGGAWAS (TIME-OUT)',
-      AppLanguage.english: 'RECORD TIME-OUT',
+      AppLanguage.cebuano: 'Paggawas (Time Out)',
+      AppLanguage.english: 'Time Out',
+    },
+    'status_not_started': {
+      AppLanguage.cebuano: 'Wala Pa Nagsugod',
+      AppLanguage.english: 'Not Started',
+    },
+    'status_on_duty': {
+      AppLanguage.cebuano: 'Nakatrabaho',
+      AppLanguage.english: 'On Duty',
+    },
+    'status_on_break': {
+      AppLanguage.cebuano: 'Naka-Break',
+      AppLanguage.english: 'On Break',
+    },
+    'status_shift_complete': {
+      AppLanguage.cebuano: 'Nahuman ang Iskedyul',
+      AppLanguage.english: 'Shift Ended',
+    },
+    'worked_hours': {
+      AppLanguage.cebuano: 'Oras sa Trabaho',
+      AppLanguage.english: 'Hours Worked',
+    },
+    'breaks_taken': {
+      AppLanguage.cebuano: 'Mga Pahuway',
+      AppLanguage.english: 'Breaks Taken',
     },
     'recent_attendance': {
       AppLanguage.cebuano: 'MGA NA-REKORD NGA ATTENDANCE',
@@ -142,8 +166,8 @@ class AppTranslations {
       AppLanguage.english: 'No attendance records logged today.',
     },
     'all_actions_complete': {
-      AppLanguage.cebuano: 'Nahuman na ang tanang 4 ka attendance actions karong adlawa.',
-      AppLanguage.english: 'All 4 attendance actions completed for today.',
+      AppLanguage.cebuano: 'Nahuman na ang attendance karong adlawa (Naka Time-Out na).',
+      AppLanguage.english: 'Shift completed for today (Timed out).',
     },
     'geofence_warning_title': {
       AppLanguage.cebuano: 'BABALA: NA-A SA GAWAS SA AREA',

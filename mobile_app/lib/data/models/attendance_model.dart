@@ -17,9 +17,8 @@ class AttendanceModel {
   final bool isVerified;
   final bool hasWarning;
   final String timeIn;
-  final String breakIn;
-  final String breakOut;
-  final String timeOut;
+  final bool isSubstitute;
+  final String? lateReason;
 
   AttendanceModel({
     required this.attendanceId,
@@ -38,9 +37,8 @@ class AttendanceModel {
     this.isVerified = true,
     this.hasWarning = false,
     this.timeIn = '--:--',
-    this.breakIn = '--:--',
-    this.breakOut = '--:--',
-    this.timeOut = '--:--',
+    this.isSubstitute = false,
+    this.lateReason,
   });
 
   factory AttendanceModel.fromMap(Map<String, dynamic> map) {
@@ -63,9 +61,8 @@ class AttendanceModel {
       isVerified: (map['is_verified'] == 1 || map['is_verified'] == true),
       hasWarning: (map['has_warning'] == 1 || map['has_warning'] == true),
       timeIn: map['time_in'] as String? ?? '--:--',
-      breakIn: map['break_in'] as String? ?? '--:--',
-      breakOut: map['break_out'] as String? ?? '--:--',
-      timeOut: map['time_out'] as String? ?? '--:--',
+      isSubstitute: (map['is_substitute'] == 1 || map['is_substitute'] == true || map['action_type']?.toString().contains('substitute') == true),
+      lateReason: map['late_reason'] as String?,
     );
   }
 
@@ -84,6 +81,8 @@ class AttendanceModel {
       'image_url': imageUrl,
       'face_match': faceMatch ? 1 : 0,
       'is_synced': isSynced ? 1 : 0,
+      'is_substitute': isSubstitute ? 1 : 0,
+      'late_reason': lateReason,
     };
   }
 
@@ -92,7 +91,7 @@ class AttendanceModel {
       'attendance_id': attendanceId,
       'user_id': userId,
       if (UuidHelper.isValidUuid(workareaId)) 'workarea_id': workareaId,
-      'action_type': actionType,
+      'action_type': isSubstitute ? 'time-in-substitute' : actionType,
       'timestamp': timestamp.toIso8601String(),
       'gps_lat': gpsLat,
       'gps_lng': gpsLng,

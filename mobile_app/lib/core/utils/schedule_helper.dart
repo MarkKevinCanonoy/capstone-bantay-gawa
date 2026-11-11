@@ -10,11 +10,17 @@ enum ShiftStatus {
 
 class ShiftValidationResult {
   final bool allowed;
+  final bool isLate;
+  final int lateMinutes;
+  final String lateFormatted;
   final String reasonCeb;
   final String reasonEng;
 
   const ShiftValidationResult({
     required this.allowed,
+    this.isLate = false,
+    this.lateMinutes = 0,
+    this.lateFormatted = '',
     this.reasonCeb = '',
     this.reasonEng = '',
   });
@@ -287,16 +293,34 @@ class ScheduleHelper {
       );
     }
 
-    if (eval.status == ShiftStatus.activeShift) {
-      return const ShiftValidationResult(allowed: true);
-    }
+    if (eval.status == ShiftStatus.activeShift || eval.status == ShiftStatus.afterShift) {
+      if (eval.startTime != null) {
+        final now = DateTime.now();
+        final nowMins = now.hour * 60 + now.minute;
+        final startMins = eval.startTime!.hour * 60 + eval.startTime!.minute;
+        final diff = nowMins - startMins;
 
-    if (eval.status == ShiftStatus.afterShift) {
-      return ShiftValidationResult(
-        allowed: false,
-        reasonCeb: 'Nahuman na ang imong gitakdang iskedyul (${eval.shiftLabel}) karong adlawa. Dili na makasulod og bag-ong Time-In.',
-        reasonEng: 'Your assigned shift (${eval.shiftLabel}) has already ended for today. Time-In is closed.',
-      );
+        if (diff > 0) {
+          final lateHours = diff ~/ 60;
+          final lateMins = diff % 60;
+          final formattedLate = lateHours > 0
+              ? (lateMins > 0 ? '${lateHours}h ${lateMins}m late' : '${lateHours}h late')
+              : '${lateMins}m late';
+          final formattedLateCeb = lateHours > 0
+              ? (lateMins > 0 ? '$lateHours hr ug $lateMins min naulahi' : '$lateHours hr naulahi')
+              : '$lateMins min naulahi';
+
+          return ShiftValidationResult(
+            allowed: true,
+            isLate: true,
+            lateMinutes: diff,
+            lateFormatted: formattedLate,
+            reasonCeb: 'Naulahi og $formattedLateCeb (Iskedyul: ${eval.shiftLabel}).',
+            reasonEng: 'Late by $formattedLate (Scheduled shift: ${eval.shiftLabel}).',
+          );
+        }
+      }
+      return const ShiftValidationResult(allowed: true);
     }
 
     return const ShiftValidationResult(allowed: true);

@@ -1361,5 +1361,145 @@ void main() {
     // PDF magic bytes: %PDF
     expect(String.fromCharCodes(pdfBytes.take(4)), '%PDF');
   });
+
+  group('Flexible Breaks and Worked Hours Calculation Tests', () {
+    test('Calculates net worked hours with multiple breaks correctly', () {
+      final punches = [
+        AttendanceModel(
+          attendanceId: '1',
+          userId: 'u1',
+          workerName: 'Pedro Penduko',
+          workerEmpId: 'BW-01',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'time-in',
+          timestamp: DateTime(2026, 11, 11, 8, 0), // 8:00 AM
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+        AttendanceModel(
+          attendanceId: '2',
+          userId: 'u1',
+          workerName: 'Pedro Penduko',
+          workerEmpId: 'BW-01',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'break-in',
+          timestamp: DateTime(2026, 11, 11, 10, 0), // 10:00 AM (Break 1 start)
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+        AttendanceModel(
+          attendanceId: '3',
+          userId: 'u1',
+          workerName: 'Pedro Penduko',
+          workerEmpId: 'BW-01',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'break-out',
+          timestamp: DateTime(2026, 11, 11, 11, 0), // 11:00 AM (Break 1 end = 1 hour)
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+        AttendanceModel(
+          attendanceId: '4',
+          userId: 'u1',
+          workerName: 'Pedro Penduko',
+          workerEmpId: 'BW-01',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'break-in',
+          timestamp: DateTime(2026, 11, 11, 12, 0), // 12:00 PM (Break 2 start)
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+        AttendanceModel(
+          attendanceId: '5',
+          userId: 'u1',
+          workerName: 'Pedro Penduko',
+          workerEmpId: 'BW-01',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'break-out',
+          timestamp: DateTime(2026, 11, 11, 13, 0), // 1:00 PM (Break 2 end = 1 hour)
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+        AttendanceModel(
+          attendanceId: '6',
+          userId: 'u1',
+          workerName: 'Pedro Penduko',
+          workerEmpId: 'BW-01',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'time-out',
+          timestamp: DateTime(2026, 11, 11, 17, 0), // 5:00 PM (Gross = 9 hours)
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+      ];
+
+      final daily = DailyWorkerAttendance(
+        userId: 'u1',
+        workerName: 'Pedro Penduko',
+        workerEmpId: 'BW-01',
+        workareaId: 'w1',
+        areaName: 'Zone 1',
+        dateKey: '2026-11-11',
+        punches: punches,
+      );
+
+      expect(daily.breakCount, 2);
+      expect(daily.totalBreakDuration.inHours, 2);
+      expect(daily.totalWorkedDuration.inHours, 7); // 9h gross - 2h breaks = 7h net
+      expect(daily.formattedTotalHoursWorked, '7h 0m');
+      expect(daily.statusSummary, 'SHIFT COMPLETE');
+    });
+
+    test('Calculates net worked hours without any breaks correctly', () {
+      final punches = [
+        AttendanceModel(
+          attendanceId: '1',
+          userId: 'u2',
+          workerName: 'Worker Two',
+          workerEmpId: 'BW-02',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'time-in',
+          timestamp: DateTime(2026, 11, 11, 8, 0), // 8:00 AM
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+        AttendanceModel(
+          attendanceId: '2',
+          userId: 'u2',
+          workerName: 'Worker Two',
+          workerEmpId: 'BW-02',
+          workareaId: 'w1',
+          areaName: 'Zone 1',
+          actionType: 'time-out',
+          timestamp: DateTime(2026, 11, 11, 11, 0), // 11:00 AM (Gross = 3 hours)
+          gpsLat: 11.0,
+          gpsLng: 124.0,
+        ),
+      ];
+
+      final daily = DailyWorkerAttendance(
+        userId: 'u2',
+        workerName: 'Worker Two',
+        workerEmpId: 'BW-02',
+        workareaId: 'w1',
+        areaName: 'Zone 1',
+        dateKey: '2026-11-11',
+        punches: punches,
+      );
+
+      expect(daily.breakCount, 0);
+      expect(daily.totalBreakDuration, Duration.zero);
+      expect(daily.totalWorkedDuration.inHours, 3);
+      expect(daily.formattedTotalHoursWorked, '3h 0m');
+      expect(daily.statusSummary, 'SHIFT COMPLETE');
+    });
+  });
 }
 

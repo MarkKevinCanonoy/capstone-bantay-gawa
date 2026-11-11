@@ -107,7 +107,10 @@ class LeaveRequestModel {
     if (aName.isEmpty && json['work_areas'] != null && json['work_areas'] is Map) {
       aName = json['work_areas']['name']?.toString() ?? '';
     }
-    if (aName.isEmpty) aName = 'Ormoc Plaza';
+    if (aName.isEmpty && json['users'] != null && json['users'] is Map) {
+      aName = json['users']['assigned_area_name']?.toString() ?? '';
+    }
+    if (aName.isEmpty) aName = 'Unassigned Sector';
 
     return LeaveRequestModel(
       leaveId: json['leave_id']?.toString() ?? '',

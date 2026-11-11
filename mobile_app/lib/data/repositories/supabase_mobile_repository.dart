@@ -212,6 +212,21 @@ class SupabaseMobileRepository implements MobileRepository {
   }
 
   @override
+  Future<List<WorkAreaModel>> getAllWorkAreas() async {
+    try {
+      final allRes = await _client.from('work_areas').select('*, users!supervisor_id(first_name, last_name)');
+      final allAreas = (allRes as List).map((m) => WorkAreaModel.fromMap(m as Map<String, dynamic>)).toList();
+      if (allAreas.isNotEmpty) {
+        await LocalDatabase.instance.cacheWorkAreas(allAreas);
+        return allAreas;
+      }
+    } catch (e) {
+      debugPrint('Failed to fetch all work areas online: $e');
+    }
+    return await LocalDatabase.instance.getCachedWorkAreas();
+  }
+
+  @override
   Future<List<AttendanceModel>> getAttendanceHistory(String userId) async {
     try {
       final res = await _client.from('attendance').select('''
@@ -227,7 +242,19 @@ class SupabaseMobileRepository implements MobileRepository {
         return AttendanceModel.fromMap({...m as Map<String, dynamic>, 'area_name': aName});
       }).toList();
 
-      return onlineLogs;
+      // Retrieve local unsynced punches to ensure offline actions (breaks, etc.) don't vanish upon reconnecting
+      final unsynced = await LocalDatabase.instance.getUnsyncedAttendance();
+      final onlineIds = onlineLogs.map((l) => l.attendanceId).toSet();
+
+      final List<AttendanceModel> combined = [...onlineLogs];
+      for (final local in unsynced) {
+        if (!onlineIds.contains(local.attendanceId)) {
+          combined.add(local);
+        }
+      }
+      combined.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+
+      return combined;
     } catch (e) {
       debugPrint('Attendance online fetch error, using local database: $e');
     }
@@ -371,6 +398,11 @@ class SupabaseMobileRepository implements MobileRepository {
       final onlineLeaves = (res as List).map((m) {
         return LeaveRequestModel.fromMap(m as Map<String, dynamic>);
       }).toList();
+
+      // Update local SQLite queue with server decision status
+      for (final l in onlineLeaves) {
+        await LocalDatabase.instance.updateLeaveStatus(l.leaveId, l.status);
+      }
 
       return onlineLeaves;
     } catch (e) {

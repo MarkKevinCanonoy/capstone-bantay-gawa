@@ -436,9 +436,8 @@ class LocalDatabase {
           isVerified: existing.isVerified,
           hasWarning: existing.hasWarning,
           timeIn: existing.timeIn,
-          breakIn: existing.breakIn,
-          breakOut: existing.breakOut,
-          timeOut: existing.timeOut,
+          isSubstitute: existing.isSubstitute,
+          lateReason: existing.lateReason,
         );
       }
       return;
@@ -585,6 +584,23 @@ class LocalDatabase {
       orderBy: 'start_date DESC',
     );
     return results.map((m) => LeaveRequestModel.fromMap(m)).toList();
+  }
+
+  Future<void> updateLeaveStatus(String leaveId, String status) async {
+    final db = await database;
+    if (db == null) {
+      final idx = _memLeaves.indexWhere((l) => l.leaveId == leaveId);
+      if (idx != -1) {
+        _memLeaves[idx] = _memLeaves[idx].copyWith(status: status);
+      }
+      return;
+    }
+    await db.update(
+      'leave_requests_queue',
+      {'status': status},
+      where: 'leave_id = ?',
+      whereArgs: [leaveId],
+    );
   }
 
   Future<void> markLeaveSynced(String leaveId) async {

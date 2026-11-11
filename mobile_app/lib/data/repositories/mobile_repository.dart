@@ -13,6 +13,7 @@ abstract class MobileRepository {
   Future<void> logout();
 
   Future<List<WorkAreaModel>> getAssignedWorkAreas(String userId);
+  Future<List<WorkAreaModel>> getAllWorkAreas();
 
   Future<List<AttendanceModel>> getAttendanceHistory(String userId);
   Future<void> recordAttendance(AttendanceModel attendance);

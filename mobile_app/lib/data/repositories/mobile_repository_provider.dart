@@ -132,7 +132,7 @@ final allWorkAreasProvider = FutureProvider<List<WorkAreaModel>>((ref) async {
   final user = ref.watch(currentUserProvider).value;
   if (user == null) return [];
   final repo = ref.watch(mobileRepositoryProvider);
-  return await repo.getAssignedWorkAreas(user.userId);
+  return await repo.getAllWorkAreas();
 });
 
 class AttendanceListNotifier extends AsyncNotifier<List<AttendanceModel>> {

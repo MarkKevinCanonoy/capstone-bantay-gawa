@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -100,7 +101,12 @@ Future<void> showReportWorkerDialog(BuildContext context, WidgetRef ref) async {
                   items: peerWorkers.map((w) {
                     return DropdownMenuItem<UserModel>(
                       value: w,
-                      child: Text('${w.fullName} (${w.userId})', style: const TextStyle(fontSize: 13)),
+                      child: Text(
+                        w.fullName,
+                        style: const TextStyle(fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
                     );
                   }).toList(),
                   onChanged: (val) {
@@ -164,6 +170,42 @@ Future<void> showReportWorkerDialog(BuildContext context, WidgetRef ref) async {
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () async {
+                    // Show options: Camera or Gallery
+                    final source = await showModalBottomSheet<String>(
+                      context: dialogContext,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                      ),
+                      builder: (ctx) => SafeArea(
+                        child: Wrap(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Text(
+                                lang == AppLanguage.cebuano ? 'Pilia ang gigikanan sa ebidensya' : 'Select proof source',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.primaryNavy),
+                              ),
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.camera_alt_rounded, color: AppColors.primaryNavy),
+                              title: Text(lang == AppLanguage.cebuano ? 'Pagkuha og Litrato (Kamera)' : 'Take Photo (Camera)'),
+                              subtitle: Text(lang == AppLanguage.cebuano ? 'Adunay petsa, oras, ug lokasyon' : 'Watermarked with date, time & GPS'),
+                              onTap: () => Navigator.pop(ctx, 'camera'),
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.photo_library_rounded, color: AppColors.accentBlue),
+                              title: Text(lang == AppLanguage.cebuano ? 'Pili gikan sa Gallery' : 'Choose from Gallery'),
+                              subtitle: Text(lang == AppLanguage.cebuano ? 'I-upload ang litrato gikan sa cellphone' : 'Select photo from device storage'),
+                              onTap: () => Navigator.pop(ctx, 'gallery'),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
+                      ),
+                    );
+
+                    if (source == null) return;
+
                     try {
                       final currentUser = ref.read(currentUserProvider).value;
                       final area = ref.read(assignedWorkAreaProvider).value;
@@ -178,38 +220,46 @@ Future<void> showReportWorkerDialog(BuildContext context, WidgetRef ref) async {
                         lng = pos.longitude;
                       } catch (_) {}
 
-                      Uint8List rawBytes;
-                      final cameras = await availableCameras();
-                      if (cameras.isNotEmpty) {
-                        final controller = CameraController(cameras.first, ResolutionPreset.medium, enableAudio: false);
-                        await controller.initialize();
-                        final photo = await controller.takePicture();
-                        rawBytes = await photo.readAsBytes();
-                        await controller.dispose();
-                      } else {
-                        rawBytes = Uint8List.fromList(List.generate(200 * 200 * 3, (i) => 120));
+                      Uint8List? rawBytes;
+
+                      if (source == 'camera') {
+                        final cameras = await availableCameras();
+                        if (cameras.isNotEmpty) {
+                          final controller = CameraController(cameras.first, ResolutionPreset.medium, enableAudio: false);
+                          await controller.initialize();
+                          final photo = await controller.takePicture();
+                          rawBytes = await photo.readAsBytes();
+                          await controller.dispose();
+                        } else {
+                          rawBytes = Uint8List.fromList(List.generate(200 * 200 * 3, (i) => 120));
+                        }
+                      } else if (source == 'gallery') {
+                        final result = await FilePicker.pickFiles(
+                          type: FileType.image,
+                        );
+                        if (result.isNotEmpty && result.first.path != null) {
+                          rawBytes = await File(result.first.path!).readAsBytes();
+                        }
                       }
 
-                      final watermarked = ImageWatermarkHelper.burnWatermark(
-                        rawImageBytes: rawBytes,
-                        latitude: lat,
-                        longitude: lng,
-                        workerName: currentUser?.fullName ?? '',
-                        workAreaName: area?.name.isNotEmpty == true ? area!.name : 'Unassigned Area',
-                        timestamp: DateTime.now(),
-                      );
+                      if (rawBytes != null) {
+                        final watermarked = ImageWatermarkHelper.burnWatermark(
+                          rawImageBytes: rawBytes,
+                          latitude: lat,
+                          longitude: lng,
+                          workerName: currentUser?.fullName ?? '',
+                          workAreaName: area?.name.isNotEmpty == true ? area!.name : 'Unassigned Area',
+                          timestamp: DateTime.now(),
+                        );
 
-                      final dir = await getTemporaryDirectory();
-                      final filePath = '${dir.path}/incident_${DateTime.now().millisecondsSinceEpoch}.jpg';
-                      final sampleFile = File(filePath);
-                      await sampleFile.writeAsBytes(watermarked);
-                      setDialogState(() => attachedProofPath = filePath);
-                    } catch (_) {
-                      final dir = await getTemporaryDirectory();
-                      final filePath = '${dir.path}/incident_${DateTime.now().millisecondsSinceEpoch}.jpg';
-                      final sampleFile = File(filePath);
-                      await sampleFile.writeAsBytes(List.filled(100, 0));
-                      setDialogState(() => attachedProofPath = filePath);
+                        final dir = await getTemporaryDirectory();
+                        final filePath = '${dir.path}/incident_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                        final sampleFile = File(filePath);
+                        await sampleFile.writeAsBytes(watermarked);
+                        setDialogState(() => attachedProofPath = filePath);
+                      }
+                    } catch (e) {
+                      debugPrint('Error attaching proof photo: $e');
                     }
                   },
                   icon: Icon(
@@ -220,7 +270,7 @@ Future<void> showReportWorkerDialog(BuildContext context, WidgetRef ref) async {
                   label: Text(
                     attachedProofPath != null
                         ? (lang == AppLanguage.cebuano ? 'Litrato Gilakip' : 'Photo Proof Attached')
-                        : (lang == AppLanguage.cebuano ? 'Pagkuha og Litrato' : 'Capture Proof Photo'),
+                        : (lang == AppLanguage.cebuano ? 'Pagpili og Litrato / Ebidensya' : 'Attach Proof Photo'),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,

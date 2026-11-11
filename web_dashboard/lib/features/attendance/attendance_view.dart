@@ -77,6 +77,44 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
 
     final dailyGroups = DailyWorkerAttendance.groupLogs(filteredLogs);
 
+    // Merge in workers who are on approved leave today
+    final leavesAsync = ref.watch(leaveRequestsProvider);
+    final rawLeaves = leavesAsync.value ?? [];
+    if (_selectedDate != null) {
+      final selectedDateMidnight = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
+      final activeApprovedLeaves = rawLeaves.where((l) {
+        if (l.status.toLowerCase() != 'approved') return false;
+        final start = DateTime.tryParse(l.startDate);
+        final end = DateTime.tryParse(l.endDate);
+        if (start == null || end == null) return false;
+        final sMidnight = DateTime(start.year, start.month, start.day);
+        final eMidnight = DateTime(end.year, end.month, end.day);
+        return !selectedDateMidnight.isBefore(sMidnight) && !selectedDateMidnight.isAfter(eMidnight);
+      }).toList();
+
+      final existingUserIds = dailyGroups.map((g) => g.userId).toSet();
+      for (final leave in activeApprovedLeaves) {
+        if (!existingUserIds.contains(leave.userId)) {
+          final matchesSearch = leave.workerName.toLowerCase().contains(globalSearch) ||
+              leave.areaName.toLowerCase().contains(globalSearch);
+          final matchesArea = _filterArea == 'all' || leave.workareaId == _filterArea;
+          if (matchesSearch && matchesArea) {
+            dailyGroups.add(DailyWorkerAttendance(
+              userId: leave.userId,
+              workerName: leave.workerName,
+              workerEmpId: 'BW-LEAVE',
+              workareaId: leave.workareaId ?? '',
+              areaName: leave.areaName,
+              dateKey: DateFormat('yyyy-MM-dd').format(_selectedDate!),
+              punches: [],
+              isOnLeave: true,
+              leaveDetails: '${leave.type}: ${leave.reason}',
+            ));
+          }
+        }
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -364,19 +402,28 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                         Row(
                           children: [
                             Text(
-                              daily.workerEmpId.startsWith('BW-ORMC-') ? 'Field Worker' : daily.workerEmpId,
-                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textLight),
-                            ),
-                            const SizedBox(width: 8),
-                            Icon(Icons.location_on, size: 12, color: AppColors.textLight),
-                            const SizedBox(width: 2),
-                            Flexible(
-                              child: Text(
-                                daily.areaName,
-                                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                overflow: TextOverflow.ellipsis,
+                              daily.isOnLeave
+                                  ? (daily.leaveDetails ?? 'On Approved Leave')
+                                  : (daily.workerEmpId.startsWith('BW-ORMC-') ? 'Field Worker' : daily.workerEmpId),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: daily.isOnLeave ? const Color(0xFFB45309) : AppColors.textLight,
                               ),
+                              overflow: TextOverflow.ellipsis,
                             ),
+                            if (!daily.isOnLeave) ...[
+                              const SizedBox(width: 8),
+                              Icon(Icons.location_on, size: 12, color: AppColors.textLight),
+                              const SizedBox(width: 2),
+                              Flexible(
+                                child: Text(
+                                  daily.areaName,
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ],
@@ -396,23 +443,24 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                           isLogged: daily.timeInPunch != null,
                           color: const Color(0xFF10B981),
                         ),
-                        _buildPunchMiniChip(
-                          label: 'BREAK',
-                          timeStr: daily.formattedBreakIn,
-                          isLogged: daily.breakInPunch != null,
-                          color: const Color(0xFFD97706),
-                        ),
-                        _buildPunchMiniChip(
-                          label: 'RESUME',
-                          timeStr: daily.formattedBreakOut,
-                          isLogged: daily.breakOutPunch != null,
-                          color: const Color(0xFF2563EB),
-                        ),
+                        if (daily.breakCount > 0)
+                          _buildPunchMiniChip(
+                            label: 'BREAKS (${daily.breakCount})',
+                            timeStr: daily.formattedTotalBreakTime,
+                            isLogged: true,
+                            color: const Color(0xFFD97706),
+                          ),
                         _buildPunchMiniChip(
                           label: 'OUT',
                           timeStr: daily.formattedTimeOut,
                           isLogged: daily.timeOutPunch != null,
                           color: AppColors.primaryNavy,
+                        ),
+                        _buildPunchMiniChip(
+                          label: 'WORKED',
+                          timeStr: daily.formattedTotalHoursWorked,
+                          isLogged: daily.timeInPunch != null,
+                          color: const Color(0xFF0D9488),
                         ),
                       ],
                     ),
@@ -420,7 +468,16 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
 
                   // Duty Status Pill
                   _buildDutyStatusPill(daily.statusSummary),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
+
+                  if (daily.isSubstitute) ...[
+                    StatusBadge(
+                      label: 'SUBSTITUTE',
+                      type: BadgeType.neutral,
+                      icon: Icons.people_alt_outlined,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
 
                   // Face Match Badge
                   StatusBadge(
@@ -603,6 +660,11 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
         fg = const Color(0xFF3730A3);
         icon = Icons.check_circle_outline;
         break;
+      case 'ON LEAVE':
+        bg = const Color(0xFFFEF3C7);
+        fg = const Color(0xFFB45309);
+        icon = Icons.event_busy_outlined;
+        break;
       default:
         bg = AppColors.surfaceSubtle;
         fg = AppColors.textMuted;
@@ -728,11 +790,17 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
             ),
           ),
 
-          // Face Verification Badge
+          // Face Verification / Location Badge
           StatusBadge(
-            label: punch.faceMatch ? 'Face Verified' : 'Mismatch',
-            type: punch.faceMatch ? BadgeType.success : BadgeType.danger,
-            icon: punch.faceMatch ? Icons.verified_user_rounded : Icons.gpp_bad_rounded,
+            label: punch.actionType == 'time-in'
+                ? (punch.faceMatch ? 'Face Verified' : 'Mismatch')
+                : 'GPS Verified',
+            type: (punch.actionType == 'time-in' && !punch.faceMatch)
+                ? BadgeType.danger
+                : BadgeType.success,
+            icon: punch.actionType == 'time-in'
+                ? (punch.faceMatch ? Icons.verified_user_rounded : Icons.gpp_bad_rounded)
+                : Icons.gps_fixed_rounded,
           ),
         ],
       ),
