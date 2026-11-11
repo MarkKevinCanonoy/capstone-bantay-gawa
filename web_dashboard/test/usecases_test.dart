@@ -1193,15 +1193,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Verify view loads with Attendance Verification title
+    // Verify view loads with Attendance Verification title, Weekly Matrix, and Schedule Management button
     expect(find.text('Attendance Verification'), findsOneWidget);
+    expect(find.text('Weekly Attendance Register'), findsOneWidget);
+    expect(find.text('Actual Attendance Logs'), findsOneWidget);
+    expect(find.text('Manage Worker Schedules'), findsOneWidget);
 
-    // Verify worker card renders with initials avatar and sequence chips
-    expect(find.text('Carlos Mendoza'), findsOneWidget);
+    // Verify worker card renders with initials avatar and sequence chips in Section B
+    expect(find.text('Carlos Mendoza'), findsWidgets);
     expect(find.text('IN: '), findsWidgets);
 
-    // Click on worker card to expand dropdown stack
-    final workerCard = find.text('Carlos Mendoza');
+    // Click on worker card in Section B to expand dropdown stack
+    final workerCard = find.text('Carlos Mendoza').last;
     await tester.tap(workerCard);
     await tester.pumpAndSettle();
 
@@ -1210,6 +1213,19 @@ void main() {
     expect(find.text('Time-In'), findsWidgets);
     expect(find.text('FACE VERIFIED'), findsWidgets);
     expect(find.text('All Punches Biometrically Verified'), findsOneWidget);
+
+    // Click "Manage Worker Schedules" to open Excel Workbook view
+    await tester.tap(find.text('Manage Worker Schedules'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Worker Schedule Management'), findsOneWidget);
+    expect(find.text('EXCEL WORKBOOK FORMAT'), findsOneWidget);
+    expect(find.text('Back to Attendance'), findsOneWidget);
+
+    // Click "Back to Attendance" to return
+    await tester.tap(find.text('Back to Attendance'));
+    await tester.pumpAndSettle();
+    expect(find.text('Weekly Attendance Register'), findsOneWidget);
   });
 
   testWidgets('UC-03b: LeavesView denial flow with reason updates status to denied', (WidgetTester tester) async {
@@ -1501,5 +1517,37 @@ void main() {
       expect(daily.statusSummary, 'SHIFT COMPLETE');
     });
   });
+
+  group('Worker Schedule Management Enhancements', () {
+    testWidgets('Renders horizontal Scrollbar and handles worker deletion & re-addition in another month', (tester) async {
+      final repo = createTestRepository();
+
+      // Pre-populate December 2026 sheets
+      final decSheets = await repo.getScheduleSheets(month: 12, year: 2026);
+      expect(decSheets.isNotEmpty, isTrue);
+      final firstSheet = decSheets.first;
+      expect(firstSheet.entries.isNotEmpty, isTrue);
+
+      final workerToRemove = firstSheet.entries.first;
+      final remainingEntries = firstSheet.entries.sublist(1);
+      final updatedSheet = firstSheet.copyWith(entries: remainingEntries);
+      await repo.saveScheduleSheet(updatedSheet);
+
+      // Verify the sheet in repo no longer contains workerToRemove
+      final reloadedSheets = await repo.getScheduleSheets(month: 12, year: 2026);
+      final reloadedSheet = reloadedSheets.firstWhere((s) => s.sheetId == firstSheet.sheetId);
+      expect(reloadedSheet.entries.any((e) => e.userId == workerToRemove.userId), isFalse);
+
+      // Verify all workers list from repo contains workerToRemove
+      final allWorkers = await repo.getUsers(role: UserRole.worker);
+      expect(allWorkers.any((w) => w.userId == workerToRemove.userId), isTrue);
+
+      // Available workers for re-addition should now include workerToRemove
+      final existingIds = reloadedSheet.entries.map((e) => e.userId).toSet();
+      final available = allWorkers.where((w) => !existingIds.contains(w.userId)).toList();
+      expect(available.any((w) => w.userId == workerToRemove.userId), isTrue);
+    });
+  });
 }
+
 

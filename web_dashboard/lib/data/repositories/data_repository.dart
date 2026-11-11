@@ -3,6 +3,7 @@ import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
 import '../models/leave_request_model.dart';
+import '../models/worker_schedule_sheet_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
@@ -33,6 +34,11 @@ abstract class DataRepository {
     required String days,
     String? areaName,
   });
+
+  // Monthly Worker Schedule Sheets (Excel Workbook Integration)
+  Future<List<ScheduleSheetModel>> getScheduleSheets({int? month, int? year});
+  Future<void> saveScheduleSheet(ScheduleSheetModel sheet);
+  Future<void> deleteScheduleSheet(String sheetId);
 
   // Attendance & Location Tracking (UC-08)
   Future<List<AttendanceModel>> getAttendanceLogs({String? areaId, String? workerId});

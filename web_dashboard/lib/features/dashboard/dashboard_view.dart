@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/widgets/app_card.dart';
@@ -1225,7 +1226,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                                                   ),
                                                 ),
                                                 Text(
-                                                  alert.timeAgo,
+                                                  '${DateFormat('dd/MM/yyyy').format(alert.createdAt)} • ${alert.timeAgo}',
                                                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: AppColors.textMuted),
                                                 ),
                                               ],
@@ -1326,14 +1327,20 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
                                 att.workerName,
                                 'logged Time-In at ${att.areaName} (${att.isVerified ? "On-site" : "Breach"})',
                                 att.timeIn,
+                                dateTime: att.timestamp,
                                 icon: Icons.login_rounded,
                               )),
-                          ...accomplishments.take(2).map((acc) => _buildActivityItem(
-                                acc.workerName,
-                                'submitted Accomplishment: ${acc.message}',
-                                acc.capturedTime,
-                                icon: Icons.photo_camera_outlined,
-                              )),
+                          ...accomplishments.take(2).map((acc) {
+                            final parsedDate = DateTime.tryParse(acc.capturedDate);
+                            return _buildActivityItem(
+                              acc.workerName,
+                              'submitted Accomplishment: ${acc.message}',
+                              acc.capturedTime,
+                              dateTime: parsedDate,
+                              dateString: acc.capturedDate,
+                              icon: Icons.photo_camera_outlined,
+                            );
+                          }),
                         ],
                       ],
                     ),
@@ -1368,7 +1375,23 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
     );
   }
 
-  Widget _buildActivityItem(String actor, String action, String time, {IconData icon = Icons.access_time_rounded}) {
+  Widget _buildActivityItem(String actor, String action, String time, {DateTime? dateTime, String? dateString, IconData icon = Icons.access_time_rounded}) {
+    String formattedDate = '';
+    if (dateTime != null) {
+      formattedDate = DateFormat('dd/MM/yyyy').format(dateTime);
+    } else if (dateString != null && dateString.isNotEmpty) {
+      final parsed = DateTime.tryParse(dateString);
+      if (parsed != null) {
+        formattedDate = DateFormat('dd/MM/yyyy').format(parsed);
+      } else {
+        formattedDate = dateString;
+      }
+    } else {
+      formattedDate = DateFormat('dd/MM/yyyy').format(DateTime.now());
+    }
+
+    final fullTimestampLabel = '$formattedDate • $time';
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
@@ -1398,7 +1421,7 @@ class _DashboardViewState extends ConsumerState<DashboardView> {
             ),
           ),
           const SizedBox(width: 8),
-          Text(time, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+          Text(fullTimestampLabel, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
         ],
       ),
     );

@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/file_downloader_helper.dart';
+import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/status_badge.dart';
+import '../../core/widgets/toast_notification.dart';
 import '../../data/models/attendance_model.dart';
+import '../../data/models/leave_request_model.dart';
 import '../../data/models/user_model.dart';
+import '../../data/models/worker_schedule_sheet_model.dart';
 import '../../data/repositories/repository_provider.dart';
+import 'widgets/weekly_attendance_matrix_widget.dart';
+import 'worker_schedule_management_view.dart';
 
 class AttendanceView extends ConsumerStatefulWidget {
   const AttendanceView({super.key});
@@ -16,9 +23,20 @@ class AttendanceView extends ConsumerStatefulWidget {
 }
 
 class _AttendanceViewState extends ConsumerState<AttendanceView> {
+  bool _isManagingSchedules = false;
   String _filterArea = 'all';
   DateTime? _selectedDate = DateTime.now();
+  late DateTime _selectedWeekStart;
   final Set<String> _expandedWorkerKeys = {};
+  bool _isExporting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    final sun = now.subtract(Duration(days: now.weekday % 7));
+    _selectedWeekStart = DateTime(sun.year, sun.month, sun.day);
+  }
 
   bool _isToday(DateTime d) {
     final now = DateTime.now();
@@ -40,6 +58,236 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
         _expandedWorkerKeys.add(key);
       }
     });
+  }
+
+  TimeOfDay? _parseStartTime(String scheduleStr) {
+    try {
+      final parts = scheduleStr.split(RegExp(r'[-–]'));
+      if (parts.isEmpty) return null;
+      final startStr = parts.first.trim();
+      final dt = DateFormat('hh:mm a').parseLoose(startStr);
+      return TimeOfDay(hour: dt.hour, minute: dt.minute);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  TimeOfDay? _parseEndTime(String scheduleStr) {
+    try {
+      final parts = scheduleStr.split(RegExp(r'[-–]'));
+      if (parts.length < 2) return null;
+      final endStr = parts[1].trim();
+      final dt = DateFormat('hh:mm a').parseLoose(endStr);
+      return TimeOfDay(hour: dt.hour, minute: dt.minute);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  CellAttendanceStatus _evaluateAttendanceForDate({
+    required ScheduleEntryModel worker,
+    required DateTime date,
+    required List<AttendanceModel> workerLogsForDay,
+    required List<LeaveRequestModel> activeLeaves,
+  }) {
+    // 1. Approved Leave Rule
+    final dateMidnight = DateTime(date.year, date.month, date.day);
+    final hasApprovedLeave = activeLeaves.any((l) {
+      if (l.userId != worker.userId && l.workerName.toLowerCase() != worker.workerName.toLowerCase()) return false;
+      if (l.status.toLowerCase() != 'approved') return false;
+      final start = DateTime.tryParse(l.startDate);
+      final end = DateTime.tryParse(l.endDate);
+      if (start == null || end == null) return false;
+      final sMidnight = DateTime(start.year, start.month, start.day);
+      final eMidnight = DateTime(end.year, end.month, end.day);
+      return !dateMidnight.isBefore(sMidnight) && !dateMidnight.isAfter(eMidnight);
+    });
+
+    if (hasApprovedLeave) {
+      return CellAttendanceStatus.onLeave;
+    }
+
+    // 2. Day Off Rule
+    if (worker.isDayOff(date)) {
+      return CellAttendanceStatus.dayOff;
+    }
+
+    final now = DateTime.now();
+    final todayMidnight = DateTime(now.year, now.month, now.day);
+    final targetMidnight = DateTime(date.year, date.month, date.day);
+
+    if (targetMidnight.isAfter(todayMidnight)) {
+      return CellAttendanceStatus.pendingFuture;
+    }
+
+    final timeInLog = workerLogsForDay.where((l) => l.actionType == 'time-in' || l.actionType == 'time-in-substitute').toList();
+    if (timeInLog.isNotEmpty) {
+      final punch = timeInLog.first;
+      final scheduledStart = _parseStartTime(worker.timeSchedule);
+      if (scheduledStart == null) {
+        return CellAttendanceStatus.present;
+      }
+      final shiftStartDt = DateTime(date.year, date.month, date.day, scheduledStart.hour, scheduledStart.minute);
+      final graceCutoff = shiftStartDt.add(const Duration(minutes: 15));
+      if (punch.timestamp.isAfter(graceCutoff)) {
+        return CellAttendanceStatus.late;
+      }
+      return CellAttendanceStatus.present;
+    }
+
+    if (targetMidnight.isAtSameMomentAs(todayMidnight)) {
+      final scheduledEnd = _parseEndTime(worker.timeSchedule);
+      if (scheduledEnd != null) {
+        final shiftEndDt = DateTime(date.year, date.month, date.day, scheduledEnd.hour, scheduledEnd.minute);
+        if (now.isAfter(shiftEndDt)) {
+          return CellAttendanceStatus.absent;
+        }
+      }
+      return CellAttendanceStatus.pendingFuture;
+    }
+
+    return CellAttendanceStatus.absent;
+  }
+
+  Future<void> _exportMonthlyAttendanceToExcel() async {
+    final targetMonth = _selectedWeekStart.month;
+    final targetYear = _selectedWeekStart.year;
+    final monthLabel = DateFormat('MMMM yyyy').format(_selectedWeekStart);
+
+    setState(() => _isExporting = true);
+
+    try {
+      final repo = ref.read(dataRepositoryProvider);
+      final sheets = await repo.getScheduleSheets(month: targetMonth, year: targetYear);
+      final allLogs = await repo.getAttendanceLogs();
+      final allLeaves = await repo.getLeaveRequests();
+
+      final daysInMonth = DateTime(targetYear, targetMonth + 1, 0).day;
+      final monthDates = List.generate(daysInMonth, (i) => DateTime(targetYear, targetMonth, i + 1));
+
+      final csvData = <List<dynamic>>[];
+
+      // Title & Metadata
+      csvData.add(['BANTAY GAWA - OFFICIAL MONTHLY ATTENDANCE REGISTER']);
+      csvData.add(['Period:', monthLabel]);
+      csvData.add(['Generated on:', DateFormat('dd/MM/yyyy hh:mm a').format(DateTime.now())]);
+      csvData.add([]); // empty spacer row
+
+      for (final sheet in sheets) {
+        csvData.add(['SHEET CATEGORY: ${sheet.sheetName.toUpperCase()}']);
+        
+        // Header Row
+        final headerRow = <dynamic>[
+          'No.',
+          "Worker's Name",
+          'Assigned Sector',
+          'Shift Schedule',
+          'Day Off',
+          ...monthDates.map((d) => DateFormat('dd/MM').format(d)),
+          'No. of Days Present',
+          'No. of Days Late',
+          'No. of Days Absent',
+          'No. of Days on Leave',
+        ];
+        csvData.add(headerRow);
+
+        for (int i = 0; i < sheet.entries.length; i++) {
+          final worker = sheet.entries[i];
+          int presentCount = 0;
+          int lateCount = 0;
+          int absentCount = 0;
+          int leaveCount = 0;
+
+          final dailyStatusStrings = <String>[];
+
+          for (final date in monthDates) {
+            final logsForDay = allLogs.where((l) {
+              return (l.userId == worker.userId || l.workerName == worker.workerName) &&
+                  l.timestamp.year == date.year &&
+                  l.timestamp.month == date.month &&
+                  l.timestamp.day == date.day;
+            }).toList();
+
+            final status = _evaluateAttendanceForDate(
+              worker: worker,
+              date: date,
+              workerLogsForDay: logsForDay,
+              activeLeaves: allLeaves,
+            );
+
+            switch (status) {
+              case CellAttendanceStatus.present:
+                presentCount++;
+                dailyStatusStrings.add('Present');
+                break;
+              case CellAttendanceStatus.late:
+                lateCount++;
+                dailyStatusStrings.add('Late');
+                break;
+              case CellAttendanceStatus.absent:
+                absentCount++;
+                dailyStatusStrings.add('Absent');
+                break;
+              case CellAttendanceStatus.onLeave:
+                leaveCount++;
+                dailyStatusStrings.add('On Leave');
+                break;
+              case CellAttendanceStatus.dayOff:
+                dailyStatusStrings.add('Day Off');
+                break;
+              case CellAttendanceStatus.pendingFuture:
+                dailyStatusStrings.add('-');
+                break;
+            }
+          }
+
+          final row = <dynamic>[
+            i + 1,
+            worker.workerName,
+            worker.assignedAreaName,
+            worker.timeSchedule,
+            worker.dayOff,
+            ...dailyStatusStrings,
+            presentCount,
+            lateCount,
+            absentCount,
+            leaveCount,
+          ];
+          csvData.add(row);
+        }
+
+        csvData.add([]); // empty row between sheets
+      }
+
+      final csvContent = csvData.map((row) => row.map((cell) => '"${cell.toString().replaceAll('"', '""')}"').join(',')).join('\n');
+      final filename = 'Attendance_Register_${DateFormat('MMMM_yyyy').format(_selectedWeekStart)}.csv';
+
+      downloadFile(
+        filename: filename,
+        content: csvContent,
+        mimeType: 'text/csv;charset=utf-8',
+      );
+
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Exported $monthLabel attendance register to Excel CSV.',
+          type: ToastType.success,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Failed to export attendance: $e',
+          type: ToastType.error,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isExporting = false);
+      }
+    }
   }
 
   @override
@@ -115,11 +363,17 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
       }
     }
 
+    if (_isManagingSchedules) {
+      return WorkerScheduleManagementView(
+        onBackToDashboard: () => setState(() => _isManagingSchedules = false),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: ListView(
         children: [
+          // Dashboard Title & Top Actions
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -133,13 +387,87 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Daily on-device face recognition logs and geofence validation records grouped by workforce personnel.',
+                      'Spreadsheet-based weekly attendance register and real-time biometric time-in/time-out verification records.',
                       style: TextStyle(fontSize: 13, color: AppColors.textMuted),
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 16),
+              // Button to Export Selected Month's Attendance to Excel
+              AppButton(
+                label: _isExporting ? 'Exporting...' : 'Export Excel (${DateFormat('MMM yyyy').format(_selectedWeekStart)})',
+                icon: Icons.file_download_outlined,
+                variant: ButtonVariant.outline,
+                onPressed: _isExporting ? null : _exportMonthlyAttendanceToExcel,
+              ),
+              const SizedBox(width: 10),
+              // Button to open Worker Schedule Management (Excel Interface)
+              AppButton(
+                label: 'Manage Worker Schedules',
+                icon: Icons.table_chart_rounded,
+                variant: ButtonVariant.primary,
+                onPressed: () => setState(() => _isManagingSchedules = true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // ========================================================
+          // SECTION A: WEEKLY ATTENDANCE MATRIX (SPREADSHEET REGISTER)
+          // ========================================================
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF107C41).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(Icons.grid_on_rounded, color: Color(0xFF107C41), size: 18),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                'Weekly Attendance Register',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                '• Cross-referenced against active monthly schedule',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          WeeklyAttendanceMatrixWidget(
+            selectedWeekStart: _selectedWeekStart,
+            onWeekChanged: (newWeekStart) => setState(() => _selectedWeekStart = newWeekStart),
+          ),
+          const SizedBox(height: 28),
+
+          // ========================================================
+          // SECTION B: ACTUAL ATTENDANCE TRANSACTION LOGS
+          // ========================================================
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppColors.navActiveBackground,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.history_toggle_off, color: AppColors.accentBlue, size: 18),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Actual Attendance Logs',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  ),
+                ],
+              ),
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.surface,
@@ -237,7 +565,7 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
 
           // Sector Filter Bar: Records count on the left, Sector Dropdown on the right
           AppCard(
@@ -309,49 +637,54 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
           const SizedBox(height: 16),
 
           // Attendance Logs Stacked Card List
-          Expanded(
-            child: dailyGroups.isEmpty
-                ? AppCard(
-                    padding: const EdgeInsets.all(40),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.event_busy_outlined, size: 40, color: AppColors.textLight),
-                          const SizedBox(height: 12),
-                          Text(
-                            _selectedDate == null
-                                ? 'No attendance records found matching filters'
-                                : 'No attendance records found for this sector on ${DateFormat('MMM d, yyyy').format(_selectedDate!)}',
-                            style: const TextStyle(fontSize: 14, color: AppColors.textMuted),
-                          ),
-                        ],
-                      ),
+          if (dailyGroups.isEmpty)
+            AppCard(
+              padding: const EdgeInsets.all(40),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.event_busy_outlined, size: 40, color: AppColors.textLight),
+                    const SizedBox(height: 12),
+                    Text(
+                      _selectedDate == null
+                          ? 'No attendance records found matching filters'
+                          : 'No attendance records found for this sector on ${DateFormat('MMM d, yyyy').format(_selectedDate!)}',
+                      style: const TextStyle(fontSize: 14, color: AppColors.textMuted),
                     ),
-                  )
-                : ListView.builder(
-                    itemCount: dailyGroups.length,
-                    itemBuilder: (context, index) {
-                      final daily = dailyGroups[index];
-                      final isExpanded = _expandedWorkerKeys.contains(daily.userId);
-                      return _buildWorkerAttendanceCard(daily, isExpanded);
-                    },
-                  ),
-          ),
+                  ],
+                ),
+              ),
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: dailyGroups.length,
+              itemBuilder: (context, index) {
+                final daily = dailyGroups[index];
+                final isExpanded = _expandedWorkerKeys.contains(daily.userId);
+                return _buildWorkerAttendanceCard(daily, isExpanded);
+              },
+            ),
         ],
       ),
     );
   }
 
   Widget _buildWorkerAttendanceCard(DailyWorkerAttendance daily, bool isExpanded) {
+    final isLeave = daily.isOnLeave;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: isLeave ? const Color(0xFFF1F5F9) : AppColors.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isExpanded ? AppColors.accentBlue.withValues(alpha: 0.4) : AppColors.border,
-          width: isExpanded ? 1.5 : 1,
+          color: isLeave
+              ? const Color(0xFF94A3B8)
+              : (isExpanded ? AppColors.accentBlue.withValues(alpha: 0.4) : AppColors.border),
+          width: isExpanded || isLeave ? 1.5 : 1,
         ),
         boxShadow: [
           BoxShadow(
@@ -376,7 +709,7 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: AppColors.primaryNavy,
+                      color: isLeave ? const Color(0xFF64748B) : AppColors.primaryNavy,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     alignment: Alignment.center,
@@ -661,8 +994,8 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
         icon = Icons.check_circle_outline;
         break;
       case 'ON LEAVE':
-        bg = const Color(0xFFFEF3C7);
-        fg = const Color(0xFFB45309);
+        bg = const Color(0xFFE2E8F0);
+        fg = const Color(0xFF475569);
         icon = Icons.event_busy_outlined;
         break;
       default:

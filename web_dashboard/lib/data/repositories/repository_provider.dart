@@ -10,6 +10,7 @@ import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
 import '../models/leave_request_model.dart';
+import '../models/worker_schedule_sheet_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
@@ -240,6 +241,29 @@ final attendanceProvider = FutureProvider.autoDispose<List<AttendanceModel>>((re
   }
 
   return repo.getAttendanceLogs(areaId: areaId);
+});
+
+class ScheduleSheetsQuery {
+  final int month;
+  final int year;
+
+  const ScheduleSheetsQuery({required this.month, required this.year});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ScheduleSheetsQuery &&
+          runtimeType == other.runtimeType &&
+          month == other.month &&
+          year == other.year;
+
+  @override
+  int get hashCode => month.hashCode ^ year.hashCode;
+}
+
+final scheduleSheetsProvider = FutureProvider.autoDispose.family<List<ScheduleSheetModel>, ScheduleSheetsQuery>((ref, query) async {
+  final repo = ref.watch(dataRepositoryProvider);
+  return repo.getScheduleSheets(month: query.month, year: query.year);
 });
 
 final accomplishmentsProvider = FutureProvider.autoDispose<List<AccomplishmentModel>>((ref) async {

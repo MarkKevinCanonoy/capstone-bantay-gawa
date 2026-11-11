@@ -3,6 +3,7 @@ import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
 import '../models/leave_request_model.dart';
+import '../models/worker_schedule_sheet_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
@@ -20,6 +21,7 @@ class MockRepository implements DataRepository {
   final List<BroadcastModel> _broadcasts;
   final List<IncidentReportModel> _incidents;
   final List<LocationTrackingModel> _locationTracking;
+  final List<ScheduleSheetModel> _scheduleSheets;
 
   MockRepository({
     List<WorkAreaModel>? initialWorkAreas,
@@ -31,6 +33,7 @@ class MockRepository implements DataRepository {
     List<BroadcastModel>? initialBroadcasts,
     List<IncidentReportModel>? initialIncidents,
     List<LocationTrackingModel>? initialLocationTracking,
+    List<ScheduleSheetModel>? initialScheduleSheets,
   })  : _workAreas = initialWorkAreas != null ? List.from(initialWorkAreas) : List.from(MockData.workAreas),
         _users = initialUsers != null ? List.from(initialUsers) : List.from(MockData.users),
         _attendanceLogs = initialAttendanceLogs != null ? List.from(initialAttendanceLogs) : List.from(MockData.attendanceLogs),
@@ -39,7 +42,8 @@ class MockRepository implements DataRepository {
         _alerts = initialAlerts != null ? List.from(initialAlerts) : List.from(MockData.alerts),
         _broadcasts = initialBroadcasts != null ? List.from(initialBroadcasts) : List.from(MockData.broadcasts),
         _incidents = initialIncidents != null ? List.from(initialIncidents) : List.from(MockData.incidents),
-        _locationTracking = initialLocationTracking != null ? List.from(initialLocationTracking) : List.from(MockData.locationTracking);
+        _locationTracking = initialLocationTracking != null ? List.from(initialLocationTracking) : List.from(MockData.locationTracking),
+        _scheduleSheets = initialScheduleSheets != null ? List.from(initialScheduleSheets) : [];
 
   int _countWorkersInArea(String areaId) {
     return _users.where((u) => u.role == UserRole.worker && u.assignedAreaId == areaId).length;
@@ -195,6 +199,90 @@ class MockRepository implements DataRepository {
         ),
       );
     }
+  }
+
+  // Monthly Worker Schedule Sheets (Excel Workbook Integration)
+  @override
+  Future<List<ScheduleSheetModel>> getScheduleSheets({int? month, int? year}) async {
+    final now = DateTime.now();
+    final targetMonth = month ?? now.month;
+    final targetYear = year ?? now.year;
+
+    // Seed default sheets if empty for target month/year
+    if (!_scheduleSheets.any((s) => s.month == targetMonth && s.year == targetYear)) {
+      final workers = _users.where((u) => u.role == UserRole.worker).toList();
+      final half = (workers.length / 2).ceil();
+      final streetWorkers = workers.take(half).toList();
+      final parksWorkers = workers.skip(half).toList();
+
+      final streetEntries = <ScheduleEntryModel>[];
+      for (int i = 0; i < streetWorkers.length; i++) {
+        final w = streetWorkers[i];
+        final areaName = w.assignedAreaName ?? (i % 2 == 0 ? 'San Pedro Street' : 'Real Street');
+        final areaId = w.assignedAreaId ?? (i % 2 == 0 ? 'area-1' : 'area-2');
+        streetEntries.add(ScheduleEntryModel(
+          entryId: 'entry-sc-$i-$targetMonth-$targetYear',
+          userId: w.userId,
+          workerName: w.fullName,
+          assignedAreaId: areaId,
+          assignedAreaName: areaName,
+          dayOff: i % 2 == 0 ? 'Saturday and Sunday' : 'Sunday and Monday',
+          timeSchedule: '04:00 AM – 01:00 PM',
+          statusRemarks: 'Raffle Batch 1',
+        ));
+      }
+
+      final parksEntries = <ScheduleEntryModel>[];
+      for (int i = 0; i < parksWorkers.length; i++) {
+        final w = parksWorkers[i];
+        final areaName = w.assignedAreaName ?? 'Ormoc Plaza';
+        final areaId = w.assignedAreaId ?? 'area-1';
+        parksEntries.add(ScheduleEntryModel(
+          entryId: 'entry-pp-$i-$targetMonth-$targetYear',
+          userId: w.userId,
+          workerName: w.fullName,
+          assignedAreaId: areaId,
+          assignedAreaName: areaName,
+          dayOff: i % 2 == 0 ? 'Sunday and Monday' : 'Friday and Saturday',
+          timeSchedule: '06:00 AM – 03:00 PM',
+          statusRemarks: 'Raffle Batch 2',
+        ));
+      }
+
+      _scheduleSheets.add(ScheduleSheetModel(
+        sheetId: 'sheet-sc-$targetMonth-$targetYear',
+        sheetName: 'Street Cleaners',
+        month: targetMonth,
+        year: targetYear,
+        entries: streetEntries,
+      ));
+
+      _scheduleSheets.add(ScheduleSheetModel(
+        sheetId: 'sheet-pp-$targetMonth-$targetYear',
+        sheetName: 'Parks and Plaza',
+        month: targetMonth,
+        year: targetYear,
+        entries: parksEntries,
+      ));
+    }
+
+    var list = _scheduleSheets.where((s) => s.month == targetMonth && s.year == targetYear).toList();
+    return List.unmodifiable(list);
+  }
+
+  @override
+  Future<void> saveScheduleSheet(ScheduleSheetModel sheet) async {
+    final idx = _scheduleSheets.indexWhere((s) => s.sheetId == sheet.sheetId);
+    if (idx != -1) {
+      _scheduleSheets[idx] = sheet;
+    } else {
+      _scheduleSheets.add(sheet);
+    }
+  }
+
+  @override
+  Future<void> deleteScheduleSheet(String sheetId) async {
+    _scheduleSheets.removeWhere((s) => s.sheetId == sheetId);
   }
 
   // Attendance & Location Tracking (UC-08)
