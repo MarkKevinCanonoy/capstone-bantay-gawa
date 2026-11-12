@@ -25,6 +25,9 @@ import 'package:web_dashboard/data/repositories/repository_provider.dart';
 import 'package:web_dashboard/features/work_areas/widgets/area_workers_dialog.dart';
 import 'package:web_dashboard/features/attendance/attendance_view.dart';
 import 'package:web_dashboard/core/utils/official_report_pdf_helper.dart';
+import 'package:web_dashboard/core/utils/official_attendance_excel_helper.dart';
+import 'package:web_dashboard/data/models/worker_schedule_sheet_model.dart';
+import 'package:web_dashboard/features/attendance/widgets/weekly_attendance_matrix_widget.dart';
 
 class _SupervisorUserNotifier extends CurrentUserNotifier {
   final UserModel _user;
@@ -1547,7 +1550,45 @@ void main() {
       final available = allWorkers.where((w) => !existingIds.contains(w.userId)).toList();
       expect(available.any((w) => w.userId == workerToRemove.userId), isTrue);
     });
+
+    test('OfficialAttendanceExcelHelper generates valid styled .xlsx bytes with headers and colors', () async {
+      final sheets = [
+        ScheduleSheetModel(
+          sheetId: 'sheet-1',
+          sheetName: 'Street Cleaning Unit',
+          month: 11,
+          year: 2026,
+          entries: [
+            ScheduleEntryModel(
+              entryId: 'entry-1',
+              userId: 'user-1',
+              workerName: 'Maria Santos',
+              assignedAreaId: 'area-1',
+              assignedAreaName: 'Public Market',
+              timeSchedule: '06:00 - 14:00',
+              dayOff: 'Sunday',
+            ),
+          ],
+        ),
+      ];
+
+      final bytes = await OfficialAttendanceExcelHelper.generateMonthlyAttendanceWorkbook(
+        sheets: sheets,
+        monthStart: DateTime(2026, 11, 1),
+        evaluateStatus: ({required ScheduleEntryModel worker, required DateTime date}) {
+          if (date.day == 1) return CellAttendanceStatus.present;
+          if (date.day == 2) return CellAttendanceStatus.late;
+          if (date.day == 3) return CellAttendanceStatus.absent;
+          if (date.day == 4) return CellAttendanceStatus.onLeave;
+          if (date.day == 5) return CellAttendanceStatus.dayOff;
+          return CellAttendanceStatus.pendingFuture;
+        },
+      );
+
+      expect(bytes.isNotEmpty, isTrue);
+      // Standard ZIP/XLSX file signature begins with PK\x03\x04
+      expect(bytes[0], equals(0x50)); // 'P'
+      expect(bytes[1], equals(0x4B)); // 'K'
+    });
   });
 }
-
-

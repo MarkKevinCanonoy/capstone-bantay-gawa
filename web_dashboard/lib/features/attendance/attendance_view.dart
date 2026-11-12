@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/file_downloader_helper.dart';
+import '../../core/utils/official_attendance_excel_helper.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/status_badge.dart';
@@ -162,116 +163,38 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
       final allLogs = await repo.getAttendanceLogs();
       final allLeaves = await repo.getLeaveRequests();
 
-      final daysInMonth = DateTime(targetYear, targetMonth + 1, 0).day;
-      final monthDates = List.generate(daysInMonth, (i) => DateTime(targetYear, targetMonth, i + 1));
+      final xlsxBytes = await OfficialAttendanceExcelHelper.generateMonthlyAttendanceWorkbook(
+        sheets: sheets,
+        monthStart: _selectedWeekStart,
+        evaluateStatus: ({required ScheduleEntryModel worker, required DateTime date}) {
+          final logsForDay = allLogs.where((l) {
+            return (l.userId == worker.userId || l.workerName == worker.workerName) &&
+                l.timestamp.year == date.year &&
+                l.timestamp.month == date.month &&
+                l.timestamp.day == date.day;
+          }).toList();
 
-      final csvData = <List<dynamic>>[];
+          return _evaluateAttendanceForDate(
+            worker: worker,
+            date: date,
+            workerLogsForDay: logsForDay,
+            activeLeaves: allLeaves,
+          );
+        },
+      );
 
-      // Title & Metadata
-      csvData.add(['BANTAY GAWA - OFFICIAL MONTHLY ATTENDANCE REGISTER']);
-      csvData.add(['Period:', monthLabel]);
-      csvData.add(['Generated on:', DateFormat('dd/MM/yyyy hh:mm a').format(DateTime.now())]);
-      csvData.add([]); // empty spacer row
+      final filename = 'Attendance_Register_${DateFormat('MMMM_yyyy').format(_selectedWeekStart)}.xlsx';
 
-      for (final sheet in sheets) {
-        csvData.add(['SHEET CATEGORY: ${sheet.sheetName.toUpperCase()}']);
-        
-        // Header Row
-        final headerRow = <dynamic>[
-          'No.',
-          "Worker's Name",
-          'Assigned Sector',
-          'Shift Schedule',
-          'Day Off',
-          ...monthDates.map((d) => DateFormat('dd/MM').format(d)),
-          'No. of Days Present',
-          'No. of Days Late',
-          'No. of Days Absent',
-          'No. of Days on Leave',
-        ];
-        csvData.add(headerRow);
-
-        for (int i = 0; i < sheet.entries.length; i++) {
-          final worker = sheet.entries[i];
-          int presentCount = 0;
-          int lateCount = 0;
-          int absentCount = 0;
-          int leaveCount = 0;
-
-          final dailyStatusStrings = <String>[];
-
-          for (final date in monthDates) {
-            final logsForDay = allLogs.where((l) {
-              return (l.userId == worker.userId || l.workerName == worker.workerName) &&
-                  l.timestamp.year == date.year &&
-                  l.timestamp.month == date.month &&
-                  l.timestamp.day == date.day;
-            }).toList();
-
-            final status = _evaluateAttendanceForDate(
-              worker: worker,
-              date: date,
-              workerLogsForDay: logsForDay,
-              activeLeaves: allLeaves,
-            );
-
-            switch (status) {
-              case CellAttendanceStatus.present:
-                presentCount++;
-                dailyStatusStrings.add('Present');
-                break;
-              case CellAttendanceStatus.late:
-                lateCount++;
-                dailyStatusStrings.add('Late');
-                break;
-              case CellAttendanceStatus.absent:
-                absentCount++;
-                dailyStatusStrings.add('Absent');
-                break;
-              case CellAttendanceStatus.onLeave:
-                leaveCount++;
-                dailyStatusStrings.add('On Leave');
-                break;
-              case CellAttendanceStatus.dayOff:
-                dailyStatusStrings.add('Day Off');
-                break;
-              case CellAttendanceStatus.pendingFuture:
-                dailyStatusStrings.add('-');
-                break;
-            }
-          }
-
-          final row = <dynamic>[
-            i + 1,
-            worker.workerName,
-            worker.assignedAreaName,
-            worker.timeSchedule,
-            worker.dayOff,
-            ...dailyStatusStrings,
-            presentCount,
-            lateCount,
-            absentCount,
-            leaveCount,
-          ];
-          csvData.add(row);
-        }
-
-        csvData.add([]); // empty row between sheets
-      }
-
-      final csvContent = csvData.map((row) => row.map((cell) => '"${cell.toString().replaceAll('"', '""')}"').join(',')).join('\n');
-      final filename = 'Attendance_Register_${DateFormat('MMMM_yyyy').format(_selectedWeekStart)}.csv';
-
-      downloadFile(
+      downloadBytes(
         filename: filename,
-        content: csvContent,
-        mimeType: 'text/csv;charset=utf-8',
+        bytes: xlsxBytes,
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
 
       if (mounted) {
         ToastNotification.show(
           context,
-          message: 'Exported $monthLabel attendance register to Excel CSV.',
+          message: 'Exported official $monthLabel attendance register to Excel (.xlsx).',
           type: ToastType.success,
         );
       }
@@ -284,9 +207,7 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isExporting = false);
-      }
+      if (mounted) setState(() => _isExporting = false);
     }
   }
 
