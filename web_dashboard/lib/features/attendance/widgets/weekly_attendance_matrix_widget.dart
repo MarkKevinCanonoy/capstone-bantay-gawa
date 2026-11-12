@@ -469,161 +469,243 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                     ),
                   ),
                 )
-              : SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: ConstrainedBox(
-                      constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width - 280),
-                      child: DataTable(
-                        headingRowColor: WidgetStateProperty.all(const Color(0xFFF1F5F9)),
-                        headingRowHeight: 46,
-                        dataRowMinHeight: 44,
-                        dataRowMaxHeight: 50,
-                        columnSpacing: 14,
-                        border: const TableBorder(
-                          horizontalInside: BorderSide(color: Color(0xFFE2E8F0), width: 1),
-                          verticalInside: BorderSide(color: Color(0xFFE2E8F0), width: 1),
-                        ),
-                        columns: [
-                          // 1. Row Number
-                          const DataColumn(
-                            label: Text('No.', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary)),
-                          ),
-                          // 2. Worker's Name
-                          const DataColumn(
-                            label: Text("Worker's Name", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary)),
-                          ),
-                          // 3. Assigned Area
-                          const DataColumn(
-                            label: Text('Assigned Area', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary)),
-                          ),
-                          // 4-10: Sunday through Saturday with Full Dates
-                          ..._weekDays.map((day) {
-                            final dayName = DateFormat('EEEE').format(day);
-                            final fullDate = DateFormat('MMM d, yyyy').format(day);
-                            final isToday = day.year == DateTime.now().year && day.month == DateTime.now().month && day.day == DateTime.now().day;
-                            return DataColumn(
-                              label: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                                decoration: isToday
-                                    ? BoxDecoration(
-                                        color: const Color(0xFF107C41).withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(4),
-                                      )
-                                    : null,
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      dayName,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 11,
-                                        color: isToday ? const Color(0xFF107C41) : AppColors.textPrimary,
-                                      ),
-                                    ),
-                                    Text(
-                                      fullDate,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
-                                        color: isToday ? const Color(0xFF107C41) : AppColors.textMuted,
-                                      ),
-                                    ),
-                                  ],
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    const colWidthNo = 50.0;
+                    const colWidthName = 180.0;
+                    const colWidthArea = 160.0;
+                    const colWidthDay = 100.0;
+                    const totalTableWidth = colWidthNo + colWidthName + colWidthArea + (7 * colWidthDay); // 1090.0
+
+                    return ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minHeight: 138,
+                        maxHeight: 280,
+                      ),
+                      child: Scrollbar(
+                        thumbVisibility: activeSheet.entries.length > 5,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.vertical,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SizedBox(
+                              width: totalTableWidth < (constraints.maxWidth) ? constraints.maxWidth : totalTableWidth,
+                              child: Table(
+                                columnWidths: const {
+                                  0: FixedColumnWidth(colWidthNo),
+                                  1: FixedColumnWidth(colWidthName),
+                                  2: FixedColumnWidth(colWidthArea),
+                                  3: FlexColumnWidth(1),
+                                  4: FlexColumnWidth(1),
+                                  5: FlexColumnWidth(1),
+                                  6: FlexColumnWidth(1),
+                                  7: FlexColumnWidth(1),
+                                  8: FlexColumnWidth(1),
+                                  9: FlexColumnWidth(1),
+                                },
+                                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                                border: const TableBorder(
+                                  horizontalInside: BorderSide(color: Color(0xFFE2E8F0), width: 1),
+                                  verticalInside: BorderSide(color: Color(0xFFE2E8F0), width: 1),
                                 ),
-                              ),
-                            );
-                          }),
-                        ],
-                        rows: List.generate(activeSheet.entries.length, (index) {
-                          final worker = activeSheet.entries[index];
-                          final rowNumber = index + 1;
-
-                          return DataRow(
-                            cells: [
-                              // No.
-                              DataCell(
-                                Text('$rowNumber', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textMuted)),
-                              ),
-                              // Worker's Name
-                              DataCell(
-                                Text(worker.workerName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-                              ),
-                              // Assigned Area
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.location_on, size: 12, color: AppColors.textMuted),
-                                    const SizedBox(width: 4),
-                                    Text(worker.assignedAreaName, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                                  ],
-                                ),
-                              ),
-                              // 7 Days Attendance Indicators
-                              ..._weekDays.map((date) {
-                                final logsForDay = allLogs.where((l) {
-                                  return (l.userId == worker.userId || l.workerName == worker.workerName) &&
-                                      l.timestamp.year == date.year &&
-                                      l.timestamp.month == date.month &&
-                                      l.timestamp.day == date.day;
-                                }).toList();
-
-                                final status = _evaluateAttendance(
-                                  worker: worker,
-                                  date: date,
-                                  workerLogsForDay: logsForDay,
-                                  activeLeaves: allLeaves,
-                                );
-
-                                final color = _getStatusColor(status);
-
-                                return DataCell(
-                                  InkWell(
-                                    onTap: () => _showCellDetailsDialog(
-                                      context: context,
-                                      worker: worker,
-                                      date: date,
-                                      status: status,
-                                      logs: logsForDay,
+                                children: [
+                                  // --- HEADING ROW ---
+                                  TableRow(
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFFF1F5F9),
                                     ),
-                                    child: Center(
-                                      child: Tooltip(
-                                        message: '${worker.workerName} • ${DateFormat('EEE, MMM d').format(date)}: ${_getStatusLabel(status)}',
-                                        child: Container(
-                                          width: 32,
-                                          height: 26,
-                                          decoration: BoxDecoration(
-                                            color: color,
-                                            borderRadius: BorderRadius.circular(4),
-                                            border: Border.all(
-                                              color: status == CellAttendanceStatus.dayOff
-                                                  ? const Color(0xFFCBD5E1)
-                                                  : Colors.black12,
-                                              width: 1,
-                                            ),
-                                          ),
-                                          alignment: Alignment.center,
-                                          child: status == CellAttendanceStatus.dayOff
-                                              ? const Text('OFF', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))
-                                              : status == CellAttendanceStatus.onLeave
-                                                  ? const Text('LV', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white))
-                                                  : status == CellAttendanceStatus.pendingFuture
-                                                      ? const Text('-', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))
-                                                      : null,
+                                    children: [
+                                      // 1. No.
+                                      Container(
+                                        height: 46,
+                                        alignment: Alignment.center,
+                                        child: const Text(
+                                          'No.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary),
                                         ),
                                       ),
-                                    ),
+                                      // 2. Worker's Name
+                                      Container(
+                                        height: 46,
+                                        alignment: Alignment.center,
+                                        child: const Text(
+                                          "Worker's Name",
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary),
+                                        ),
+                                      ),
+                                      // 3. Assigned Area
+                                      Container(
+                                        height: 46,
+                                        alignment: Alignment.center,
+                                        child: const Text(
+                                          'Assigned Area',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary),
+                                        ),
+                                      ),
+                                      // 4-10: 7 Days of Week (Sunday - Saturday)
+                                      ..._weekDays.map((day) {
+                                        final dayName = DateFormat('EEEE').format(day);
+                                        final fullDate = DateFormat('MMM d, yyyy').format(day);
+                                        final isToday = day.year == DateTime.now().year && day.month == DateTime.now().month && day.day == DateTime.now().day;
+
+                                        return Container(
+                                          height: 46,
+                                          color: isToday ? const Color(0xFF107C41).withValues(alpha: 0.12) : null,
+                                          alignment: Alignment.center,
+                                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            children: [
+                                              Text(
+                                                dayName,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 11,
+                                                  color: isToday ? const Color(0xFF107C41) : AppColors.textPrimary,
+                                                ),
+                                              ),
+                                              Text(
+                                                fullDate,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                                                  color: isToday ? const Color(0xFF107C41) : AppColors.textMuted,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    ],
                                   ),
-                                );
-                              }),
-                            ],
-                          );
-                        }),
+
+                                  // --- DATA ROWS ---
+                                  ...List.generate(activeSheet.entries.length, (index) {
+                                    final worker = activeSheet.entries[index];
+                                    final rowNumber = index + 1;
+
+                                    return TableRow(
+                                      children: [
+                                        // 1. No. (Centered)
+                                        Container(
+                                          height: 46,
+                                          alignment: Alignment.center,
+                                          child: Text(
+                                            '$rowNumber',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textMuted),
+                                          ),
+                                        ),
+                                        // 2. Worker's Name (Centered)
+                                        Container(
+                                          height: 46,
+                                          alignment: Alignment.center,
+                                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                                          child: Text(
+                                            worker.workerName,
+                                            textAlign: TextAlign.center,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                          ),
+                                        ),
+                                        // 3. Assigned Area (Centered)
+                                        Container(
+                                          height: 46,
+                                          alignment: Alignment.center,
+                                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.location_on, size: 12, color: AppColors.textMuted),
+                                              const SizedBox(width: 4),
+                                              Flexible(
+                                                child: Text(
+                                                  worker.assignedAreaName,
+                                                  textAlign: TextAlign.center,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        // 4-10: 7 Days Attendance Indicators (Centered)
+                                        ..._weekDays.map((date) {
+                                          final logsForDay = allLogs.where((l) {
+                                            return (l.userId == worker.userId || l.workerName == worker.workerName) &&
+                                                l.timestamp.year == date.year &&
+                                                l.timestamp.month == date.month &&
+                                                l.timestamp.day == date.day;
+                                          }).toList();
+
+                                          final status = _evaluateAttendance(
+                                            worker: worker,
+                                            date: date,
+                                            workerLogsForDay: logsForDay,
+                                            activeLeaves: allLeaves,
+                                          );
+
+                                          final color = _getStatusColor(status);
+
+                                          return InkWell(
+                                            onTap: () => _showCellDetailsDialog(
+                                              context: context,
+                                              worker: worker,
+                                              date: date,
+                                              status: status,
+                                              logs: logsForDay,
+                                            ),
+                                            child: Container(
+                                              height: 46,
+                                              alignment: Alignment.center,
+                                              child: Tooltip(
+                                                message: '${worker.workerName} • ${DateFormat('EEE, MMM d').format(date)}: ${_getStatusLabel(status)}',
+                                                child: Container(
+                                                  width: 32,
+                                                  height: 26,
+                                                  decoration: BoxDecoration(
+                                                    color: color,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    border: Border.all(
+                                                      color: status == CellAttendanceStatus.dayOff
+                                                          ? const Color(0xFFCBD5E1)
+                                                          : Colors.black12,
+                                                      width: 1,
+                                                    ),
+                                                  ),
+                                                  alignment: Alignment.center,
+                                                  child: status == CellAttendanceStatus.dayOff
+                                                      ? const Text('OFF', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF64748B)))
+                                                      : status == CellAttendanceStatus.onLeave
+                                                          ? const Text('LV', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white))
+                                                          : status == CellAttendanceStatus.pendingFuture
+                                                              ? const Text('-', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8)))
+                                                              : null,
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }),
+                                      ],
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  },
+                ),
         ],
       ),
     );

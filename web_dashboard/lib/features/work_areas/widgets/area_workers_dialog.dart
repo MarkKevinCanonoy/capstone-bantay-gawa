@@ -83,6 +83,20 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
         worker.assignedAreaId!.isNotEmpty &&
         !isAssignedHere;
 
+    if (isAssignedHere) {
+      ConfirmationDialog.show(
+        context,
+        title: 'Unassign Worker',
+        message: 'Are you sure you want to unassign ${worker.fullName} from ${widget.area.name}? They will be moved to the unassigned pool.',
+        confirmLabel: 'Unassign',
+        confirmVariant: ButtonVariant.danger,
+        onConfirm: () async {
+          await _executeAssignment(worker, isAssignedHere);
+        },
+      );
+      return;
+    }
+
     if (isAssignedElsewhere) {
       // Prompt confirmation if worker is already assigned to another area
       ConfirmationDialog.show(

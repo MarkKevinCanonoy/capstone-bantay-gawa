@@ -650,7 +650,8 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                   ),
           ),
         ),
-        if (approvedLeaveToday != null)
+        if (approvedLeaveToday != null) ...[
+          const SizedBox(height: 16),
           Container(
             margin: const EdgeInsets.only(bottom: 14),
             padding: const EdgeInsets.all(14),
@@ -684,9 +685,11 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
               ],
             ),
           ),
+        ] else
+          const SizedBox(height: 14),
 
         // Shift Progress & Stats Card (Live Shift Status, Net Worked Hours, Breaks Count)
-        _buildShiftStatusCard(logs, lang),
+        _buildShiftStatusCard(logs, lang, approvedLeave: approvedLeaveToday),
         const SizedBox(height: 16),
 
         if (shiftState == 'not_started' && shiftValidation.isLate)
@@ -812,7 +815,7 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     );
   }
 
-  Widget _buildShiftStatusCard(List<AttendanceModel> logs, AppLanguage lang) {
+  Widget _buildShiftStatusCard(List<AttendanceModel> logs, AppLanguage lang, {LeaveRequestModel? approvedLeave}) {
     final shiftState = _getShiftState(logs);
     final workedDur = _getTodayWorkedDuration(logs);
     final workedStr = _formatDuration(workedDur);
@@ -825,30 +828,37 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     Color statusFg;
     IconData statusIcon;
 
-    switch (shiftState) {
-      case 'on_duty':
-        statusLabel = AppTranslations.get('status_on_duty', lang);
-        statusBg = AppColors.successBg;
-        statusFg = AppColors.successText;
-        statusIcon = Icons.work_outline;
-        break;
-      case 'on_break':
-        statusLabel = '${AppTranslations.get("status_on_break", lang)} (#$breaksCount)';
-        statusBg = AppColors.warningBg;
-        statusFg = AppColors.warningText;
-        statusIcon = Icons.coffee_outlined;
-        break;
-      case 'completed':
-        statusLabel = AppTranslations.get('status_shift_complete', lang);
-        statusBg = const Color(0xFFE0E7FF);
-        statusFg = const Color(0xFF3730A3);
-        statusIcon = Icons.verified_outlined;
-        break;
-      default:
-        statusLabel = AppTranslations.get('status_not_started', lang);
-        statusBg = AppColors.surfaceSubtle;
-        statusFg = AppColors.textMuted;
-        statusIcon = Icons.schedule_outlined;
+    if (approvedLeave != null && shiftState == 'not_started') {
+      statusLabel = lang == AppLanguage.cebuano ? 'Naka-Bakasyon (On Leave)' : 'On Leave';
+      statusBg = const Color(0xFFF1F5F9); // Grey
+      statusFg = const Color(0xFF64748B); // Slate grey
+      statusIcon = Icons.event_busy_outlined;
+    } else {
+      switch (shiftState) {
+        case 'on_duty':
+          statusLabel = AppTranslations.get('status_on_duty', lang);
+          statusBg = AppColors.successBg;
+          statusFg = AppColors.successText;
+          statusIcon = Icons.work_outline;
+          break;
+        case 'on_break':
+          statusLabel = '${AppTranslations.get("status_on_break", lang)} (#$breaksCount)';
+          statusBg = AppColors.warningBg;
+          statusFg = AppColors.warningText;
+          statusIcon = Icons.coffee_outlined;
+          break;
+        case 'completed':
+          statusLabel = AppTranslations.get('status_shift_complete', lang);
+          statusBg = const Color(0xFFE0E7FF);
+          statusFg = const Color(0xFF3730A3);
+          statusIcon = Icons.verified_outlined;
+          break;
+        default:
+          statusLabel = AppTranslations.get('status_not_started', lang);
+          statusBg = AppColors.surfaceSubtle;
+          statusFg = AppColors.textMuted;
+          statusIcon = Icons.schedule_outlined;
+      }
     }
 
     return AppCard(

@@ -129,14 +129,36 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
     try {
       for (final sheet in _localSheets.values) {
         await repo.saveScheduleSheet(sheet);
+        // Automatically sync worker area assignments and working schedules so admin doesn't need to move back and forth
+        for (final entry in sheet.entries) {
+          if (entry.assignedAreaId.isNotEmpty && entry.assignedAreaId != 'unassigned') {
+            await repo.assignWorkerToArea(
+              workerId: entry.userId,
+              areaId: entry.assignedAreaId,
+              areaName: entry.assignedAreaName,
+            );
+            // Also sync the worker's shift time schedule if provided
+            if (entry.timeSchedule.isNotEmpty && entry.timeSchedule != 'Unassigned') {
+              await repo.updateWorkerSchedule(
+                workerId: entry.userId,
+                startTime: entry.timeSchedule.split('–').first.split('-').first.trim(),
+                endTime: entry.timeSchedule.split('–').last.split('-').last.trim(),
+                days: entry.dayOff == 'None' ? 'Daily' : 'Mon-Fri',
+                areaName: entry.assignedAreaName,
+              );
+            }
+          }
+        }
       }
       ref.invalidate(scheduleSheetsProvider);
+      ref.invalidate(workAreasProvider);
+      ref.invalidate(employeesProvider);
       setState(() {
         _hasUnsavedChanges = false;
         _isSaving = false;
       });
       if (mounted) {
-        ToastNotification.show(context, message: 'Worker schedules successfully saved to active roster.', type: ToastType.success);
+        ToastNotification.show(context, message: 'Worker schedules and sector assignments successfully synced to work areas.', type: ToastType.success);
       }
     } catch (e) {
       setState(() => _isSaving = false);
@@ -1180,8 +1202,12 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                           ),
                           const SizedBox(height: 8),
-                          const Text('Click "Add Worker" to populate this monthly schedule following the raffle draw.',
-                              style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                          Text(
+                            currentSheet == null
+                                ? 'Click "Add Sheet" to create a new sector schedule sheet for ${DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth))}.'
+                                : 'Click "Add Worker" to populate this monthly schedule following the raffle draw.',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                          ),
                           const SizedBox(height: 16),
                           if (currentSheet != null)
                             ElevatedButton.icon(
@@ -1189,6 +1215,13 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                               label: const Text('Add Worker Now'),
                               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF107C41), foregroundColor: Colors.white),
                               onPressed: () => _addWorkerToSheetDialog(currentSheet),
+                            )
+                          else
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.post_add_rounded, size: 16),
+                              label: const Text('Add Schedule Sheet'),
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF107C41), foregroundColor: Colors.white),
+                              onPressed: _addNewSheetDialog,
                             ),
                         ],
                       ),

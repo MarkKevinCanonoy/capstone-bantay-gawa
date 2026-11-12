@@ -338,12 +338,14 @@ class SupabaseRepository implements DataRepository {
 
   // Local fallback storage for schedule sheets across Supabase restarts
   static final List<ScheduleSheetModel> _supaMemSheets = [];
+  static final Set<String> _clearedMonths = {};
 
   @override
   Future<List<ScheduleSheetModel>> getScheduleSheets({int? month, int? year}) async {
     final now = DateTime.now();
     final targetMonth = month ?? now.month;
     final targetYear = year ?? now.year;
+    final monthKey = '$targetYear-$targetMonth';
 
     try {
       final res = await _client
@@ -358,8 +360,8 @@ class SupabaseRepository implements DataRepository {
       debugPrint('SupabaseRepository getScheduleSheets remote notice: $e');
     }
 
-    // Fallback to in-memory / synthesized active workforce sheets
-    if (!_supaMemSheets.any((s) => s.month == targetMonth && s.year == targetYear)) {
+    // Fallback to in-memory / synthesized active workforce sheets only if user didn't intentionally delete them
+    if (!_clearedMonths.contains(monthKey) && !_supaMemSheets.any((s) => s.month == targetMonth && s.year == targetYear)) {
       try {
         final workers = await getUsers(role: UserRole.worker);
         final half = (workers.length / 2).ceil();
@@ -425,6 +427,8 @@ class SupabaseRepository implements DataRepository {
 
   @override
   Future<void> saveScheduleSheet(ScheduleSheetModel sheet) async {
+    final monthKey = '${sheet.year}-${sheet.month}';
+    _clearedMonths.remove(monthKey);
     final idx = _supaMemSheets.indexWhere((s) => s.sheetId == sheet.sheetId);
     if (idx != -1) {
       _supaMemSheets[idx] = sheet;
@@ -447,7 +451,13 @@ class SupabaseRepository implements DataRepository {
 
   @override
   Future<void> deleteScheduleSheet(String sheetId) async {
+    final toDelete = _supaMemSheets.where((s) => s.sheetId == sheetId).toList();
     _supaMemSheets.removeWhere((s) => s.sheetId == sheetId);
+    for (final s in toDelete) {
+      if (!_supaMemSheets.any((other) => other.month == s.month && other.year == s.year)) {
+        _clearedMonths.add('${s.year}-${s.month}');
+      }
+    }
     try {
       await _client.from('schedules_sheets').delete().eq('sheet_id', sheetId);
     } catch (e) {

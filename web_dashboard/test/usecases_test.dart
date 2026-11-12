@@ -560,7 +560,7 @@ void main() {
     expect(find.textContaining('In-app notification delivered'), findsOneWidget);
   });
 
-  testWidgets('UC-07: Shuffle Worker Assignments executes balanced rotation & reassignment warnings', (WidgetTester tester) async {
+  testWidgets('UC-07: WorkAreasView card View button moves map focus and drops assigned workers list', (WidgetTester tester) async {
     tester.view.physicalSize = const Size(1440, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -574,21 +574,26 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Find Shuffle Assignments button
-    final shuffleBtn = find.text('Shuffle Assignments');
-    expect(shuffleBtn, findsOneWidget);
+    // Verify Shuffle Assignments button has been removed
+    expect(find.text('Shuffle Assignments'), findsNothing);
 
-    await tester.tap(shuffleBtn);
+    // Verify View button exists on work area cards
+    final viewBtn = find.text('View').first;
+    expect(viewBtn, findsWidgets);
+
+    // Tap View button to focus area and expand assigned workers dropdown
+    await tester.tap(viewBtn);
     await tester.pumpAndSettle();
 
-    // Verify dialog content
-    expect(find.text('Monthly Workforce Shuffle'), findsOneWidget);
-    expect(find.text('Confirm & Execute Shuffle'), findsOneWidget);
+    // Verify Assigned Workers dropdown appears
+    expect(find.textContaining('ASSIGNED WORKERS'), findsOneWidget);
+    // Button label toggles to Hide
+    expect(find.text('Hide'), findsOneWidget);
 
-    // Cancel shuffle via close icon
-    await tester.tap(find.byIcon(Icons.close));
+    // Tap Hide button to collapse
+    await tester.tap(find.text('Hide'));
     await tester.pumpAndSettle();
-    expect(find.text('Monthly Workforce Shuffle'), findsNothing);
+    expect(find.textContaining('ASSIGNED WORKERS'), findsNothing);
 
     // Open AreaWorkersDialog to verify roster display
     final areas = await repo.getWorkAreas();

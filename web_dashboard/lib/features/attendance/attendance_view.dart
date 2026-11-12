@@ -578,15 +578,22 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
               ),
             )
           else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: dailyGroups.length,
-              itemBuilder: (context, index) {
-                final daily = dailyGroups[index];
-                final isExpanded = _expandedWorkerKeys.contains(daily.userId);
-                return _buildWorkerAttendanceCard(daily, isExpanded);
-              },
+            ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxHeight: 520, // Dedicated scrollable viewport for logs
+              ),
+              child: Scrollbar(
+                thumbVisibility: dailyGroups.length > 3,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: dailyGroups.length,
+                  itemBuilder: (context, index) {
+                    final daily = dailyGroups[index];
+                    final isExpanded = _expandedWorkerKeys.contains(daily.userId);
+                    return _buildWorkerAttendanceCard(daily, isExpanded);
+                  },
+                ),
+              ),
             ),
         ],
       ),

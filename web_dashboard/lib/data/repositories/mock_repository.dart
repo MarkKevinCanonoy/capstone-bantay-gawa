@@ -22,6 +22,7 @@ class MockRepository implements DataRepository {
   final List<IncidentReportModel> _incidents;
   final List<LocationTrackingModel> _locationTracking;
   final List<ScheduleSheetModel> _scheduleSheets;
+  final Set<String> _clearedMonths = {};
 
   MockRepository({
     List<WorkAreaModel>? initialWorkAreas,
@@ -208,8 +209,11 @@ class MockRepository implements DataRepository {
     final targetMonth = month ?? now.month;
     final targetYear = year ?? now.year;
 
-    // Seed default sheets if empty for target month/year
-    if (!_scheduleSheets.any((s) => s.month == targetMonth && s.year == targetYear)) {
+    final monthKey = '$targetYear-$targetMonth';
+
+    // Seed default sheets if empty for target month/year and not previously cleared
+    if (!_clearedMonths.contains(monthKey) &&
+        !_scheduleSheets.any((s) => s.month == targetMonth && s.year == targetYear)) {
       final workers = _users.where((u) => u.role == UserRole.worker).toList();
       final half = (workers.length / 2).ceil();
       final streetWorkers = workers.take(half).toList();
@@ -272,6 +276,7 @@ class MockRepository implements DataRepository {
 
   @override
   Future<void> saveScheduleSheet(ScheduleSheetModel sheet) async {
+    _clearedMonths.remove('${sheet.year}-${sheet.month}');
     final idx = _scheduleSheets.indexWhere((s) => s.sheetId == sheet.sheetId);
     if (idx != -1) {
       _scheduleSheets[idx] = sheet;
@@ -282,7 +287,13 @@ class MockRepository implements DataRepository {
 
   @override
   Future<void> deleteScheduleSheet(String sheetId) async {
+    final toDelete = _scheduleSheets.where((s) => s.sheetId == sheetId).toList();
     _scheduleSheets.removeWhere((s) => s.sheetId == sheetId);
+    for (final s in toDelete) {
+      if (!_scheduleSheets.any((rem) => rem.month == s.month && rem.year == s.year)) {
+        _clearedMonths.add('${s.year}-${s.month}');
+      }
+    }
   }
 
   // Attendance & Location Tracking (UC-08)

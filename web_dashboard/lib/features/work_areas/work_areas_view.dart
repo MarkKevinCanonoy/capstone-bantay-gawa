@@ -11,6 +11,7 @@ import '../../core/widgets/confirmation_dialog.dart';
 import '../../core/widgets/toast_notification.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/work_area_model.dart';
+import '../../data/models/worker_schedule_sheet_model.dart';
 import '../../data/repositories/repository_provider.dart';
 import '../../core/utils/uuid_helper.dart';
 import 'widgets/area_workers_dialog.dart';
@@ -25,8 +26,138 @@ class WorkAreasView extends ConsumerStatefulWidget {
 class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
   final MapController _mapController = MapController();
   WorkAreaModel? _selectedArea;
+  String? _expandedWorkerAreaId;
   bool _isDrawing = false;
   final List<LatLng> _newPolygonPoints = [];
+
+  void _focusArea(WorkAreaModel area) {
+    setState(() {
+      _selectedArea = area;
+      // Toggle dropdown if clicked again for the same area, or open it
+      _expandedWorkerAreaId = (_expandedWorkerAreaId == area.workareaId) ? null : area.workareaId;
+    });
+    // Move map focus to the area selected and zoom in a wee bit more (17.0)
+    _mapController.move(area.center, 17.0);
+  }
+
+  static String _formatTo12Hour(String time24) {
+    final clean = time24.trim();
+    if (clean.isEmpty) return '';
+    try {
+      final parts = clean.split(':');
+      if (parts.length >= 2) {
+        int hour = int.parse(parts[0]);
+        final min = parts[1].padLeft(2, '0');
+        final period = hour >= 12 ? 'PM' : 'AM';
+        if (hour == 0) {
+          hour = 12;
+        } else if (hour > 12) {
+          hour -= 12;
+        }
+        return '${hour.toString().padLeft(2, '0')}:$min $period';
+      }
+    } catch (_) {}
+    return clean;
+  }
+
+  Widget _buildWorkerScheduleView(String rawSchedule, {ScheduleEntryModel? entry}) {
+    // Days mapping: Sunday(0) to Saturday(6) -> S M T W T F S
+    final dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    final dayLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+    final activeDays = <int>{0, 1, 2, 3, 4, 5, 6}; // start with all days
+
+    if (entry != null && entry.dayOff.isNotEmpty && entry.dayOff.toLowerCase() != 'none') {
+      final offLower = entry.dayOff.toLowerCase();
+      // Remove days specified as days off
+      for (int i = 0; i < dayNames.length; i++) {
+        final prefix = dayNames[i].substring(0, 3).toLowerCase();
+        if (offLower.contains(prefix)) {
+          activeDays.remove(i);
+        }
+      }
+    } else if (rawSchedule.isNotEmpty && rawSchedule != 'Unassigned') {
+      final lower = rawSchedule.toLowerCase();
+      if (lower.contains('mon-fri') || lower.contains('mon to fri')) {
+        activeDays.clear();
+        activeDays.addAll([1, 2, 3, 4, 5]);
+      } else if (lower.contains('mon-sat') || lower.contains('mon to sat')) {
+        activeDays.clear();
+        activeDays.addAll([1, 2, 3, 4, 5, 6]);
+      } else if (lower.contains('daily') || lower.contains('everyday')) {
+        activeDays.clear();
+        activeDays.addAll([0, 1, 2, 3, 4, 5, 6]);
+      } else {
+        final found = <int>{};
+        for (int i = 0; i < dayNames.length; i++) {
+          final prefix = dayNames[i].substring(0, 3).toLowerCase();
+          if (lower.contains(prefix)) {
+            found.add(i);
+          }
+        }
+        if (found.isNotEmpty) {
+          activeDays.clear();
+          activeDays.addAll(found);
+        }
+      }
+    } else {
+      // Default standard working days Monday to Friday if unassigned
+      activeDays.clear();
+      activeDays.addAll([1, 2, 3, 4, 5]);
+    }
+
+    // Determine time range string
+    String time12 = '';
+    final timeSource = (entry != null && entry.timeSchedule.isNotEmpty && entry.timeSchedule != 'Unassigned')
+        ? entry.timeSchedule
+        : rawSchedule;
+
+    final timeMatch = RegExp(r'(\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?)\s*[-–—]\s*(\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?)').firstMatch(timeSource);
+    if (timeMatch != null) {
+      final t1 = timeMatch.group(1)!;
+      final t2 = timeMatch.group(2)!;
+      final t1_12 = t1.toLowerCase().contains('m') ? t1 : _formatTo12Hour(t1);
+      final t2_12 = t2.toLowerCase().contains('m') ? t2 : _formatTo12Hour(t2);
+      time12 = '$t1_12 - $t2_12';
+    } else if (timeSource.contains('AM') || timeSource.contains('PM')) {
+      time12 = timeSource;
+    } else if (timeSource.isNotEmpty && timeSource != 'Unassigned') {
+      time12 = timeSource;
+    } else {
+      time12 = '08:00 AM - 05:00 PM';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // S M T W T F S day row: black for working days, grey for day offs
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(7, (i) {
+            final isWorking = activeDays.contains(i);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1.5),
+              child: Text(
+                dayLetters[i],
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: isWorking ? FontWeight.w800 : FontWeight.w500,
+                  color: isWorking ? Colors.black87 : const Color(0xFFBDBDBD),
+                ),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 2),
+        // 12-hour format time below
+        Text(
+          time12,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+        ),
+      ],
+    );
+  }
 
   void _showManageWorkersDialog(WorkAreaModel area) {
     AreaWorkersDialog.show(
@@ -860,6 +991,17 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
   Widget build(BuildContext context) {
     final currentUser = ref.watch(currentUserProvider);
     final workAreasAsync = ref.watch(workAreasProvider);
+    final allEmployees = ref.watch(employeesProvider).value ?? [];
+    final now = DateTime.now();
+    final scheduleSheetsAsync = ref.watch(scheduleSheetsProvider(ScheduleSheetsQuery(month: now.month, year: now.year)));
+    final allSheets = scheduleSheetsAsync.value ?? [];
+    // Map worker userId to their designated monthly ScheduleEntryModel (which contains exact dayOff and timeSchedule)
+    final Map<String, ScheduleEntryModel> workerRosterMap = {};
+    for (final sheet in allSheets) {
+      for (final entry in sheet.entries) {
+        workerRosterMap[entry.userId] = entry;
+      }
+    }
     ref.watch(supervisorsProvider);
     final rawWorkAreas = workAreasAsync.value ?? [];
     final workAreas = currentUser.role == UserRole.supervisor
@@ -902,23 +1044,12 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                   );
 
                   final actionButtons = currentUser.role == UserRole.admin
-                      ? Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AppButton(
-                              label: 'Shuffle Assignments',
-                              icon: Icons.shuffle_rounded,
-                              variant: ButtonVariant.outline,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              onPressed: _showMonthlyShuffleDialog,
-                            ),
-                            const SizedBox(width: 10),
-                            AppButton(
-                              label: _isDrawing ? 'Cancel Drawing' : '+ Add Work Area',
-                              icon: _isDrawing ? Icons.close : Icons.draw_outlined,
-                              variant: _isDrawing ? ButtonVariant.outline : ButtonVariant.primary,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              onPressed: () {
+                      ? AppButton(
+                          label: _isDrawing ? 'Cancel Drawing' : '+ Add Work Area',
+                          icon: _isDrawing ? Icons.close : Icons.draw_outlined,
+                          variant: _isDrawing ? ButtonVariant.outline : ButtonVariant.primary,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          onPressed: () {
                                 if (_isDrawing) {
                                   setState(() {
                                     _isDrawing = false;
@@ -928,9 +1059,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                   _startDrawingGeofence();
                                 }
                               },
-                            ),
-                          ],
-                        )
+                            )
                       : const SizedBox.shrink();
 
                   if (isHeaderStacked) {
@@ -1236,14 +1365,25 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                         itemBuilder: (context, index) {
                           final area = workAreas[index];
                           final isSelected = _selectedArea?.workareaId == area.workareaId;
+                          final isExpanded = _expandedWorkerAreaId == area.workareaId;
+                          final assignedWorkers = allEmployees.where((e) =>
+                              e.role == UserRole.worker &&
+                              (e.assignedAreaId == area.workareaId ||
+                               (e.assignedAreaName != null && e.assignedAreaName == area.name))).toList();
 
                           return AppCard(
                             padding: const EdgeInsets.all(16),
                             backgroundColor: isSelected ? const Color(0xFFF0F7FF) : AppColors.surface,
                             border: isSelected ? Border.all(color: AppColors.accentBlue, width: 2) : Border.all(color: AppColors.border),
                             onTap: () {
-                              setState(() => _selectedArea = area);
-                              _mapController.move(area.center, 15.0);
+                              setState(() {
+                                _selectedArea = area;
+                                // If clicking a different card, close any other card's dropdown
+                                if (_expandedWorkerAreaId != area.workareaId) {
+                                  _expandedWorkerAreaId = null;
+                                }
+                              });
+                              _mapController.move(area.center, 17.0);
                             },
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1333,72 +1473,259 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                   const SizedBox(height: 8),
                                   Text(area.description!, style: const TextStyle(fontSize: 11, color: AppColors.textMuted), maxLines: 2, overflow: TextOverflow.ellipsis),
                                 ],
-                                if (currentUser.role == UserRole.admin) ...[
+
+                                // Collapsible Assigned Workers Dropdown
+                                if (isExpanded) ...[
                                   const SizedBox(height: 10),
-                                  const Divider(height: 1, color: AppColors.border),
-                                  const SizedBox(height: 6),
-                                  Wrap(
-                                    alignment: WrapAlignment.end,
-                                    spacing: 6,
-                                    runSpacing: 4,
-                                    children: [
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.person_add_alt_1_outlined, size: 14),
-                                        label: const Text('+ Add Worker', style: TextStyle(fontSize: 12)),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: AppColors.accentEmerald,
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                          minimumSize: Size.zero,
-                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: AppColors.border),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'ASSIGNED WORKERS (${assignedWorkers.length})',
+                                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.textMuted, letterSpacing: 0.5),
+                                            ),
+                                            InkWell(
+                                              onTap: () => setState(() => _expandedWorkerAreaId = null),
+                                              child: const Icon(Icons.keyboard_arrow_up, size: 16, color: AppColors.textMuted),
+                                            ),
+                                          ],
                                         ),
-                                        onPressed: () => _showManageWorkersDialog(area),
-                                      ),
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.edit_outlined, size: 14),
-                                        label: const Text('Edit', style: TextStyle(fontSize: 12)),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: AppColors.accentBlue,
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                          minimumSize: Size.zero,
-                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                        ),
-                                        onPressed: () => _showEditAreaDialog(area),
-                                      ),
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.delete_outline, size: 14),
-                                        label: const Text('Remove', style: TextStyle(fontSize: 12)),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: AppColors.brightRed,
-                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                          minimumSize: Size.zero,
-                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                        ),
-                                        onPressed: () => _confirmDeleteArea(area),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 6),
+                                        if (assignedWorkers.isEmpty)
+                                          const Padding(
+                                            padding: EdgeInsets.symmetric(vertical: 4),
+                                            child: Text('No workers assigned to this area yet.', style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic, color: AppColors.textMuted)),
+                                          )
+                                        else
+                                          ConstrainedBox(
+                                            constraints: const BoxConstraints(
+                                              minHeight: 44, // Minimum height for 1 worker list row
+                                              maxHeight: 220, // Max height for ~5 workers before smooth scrolling
+                                            ),
+                                            child: Scrollbar(
+                                              thumbVisibility: assignedWorkers.length > 5,
+                                              child: ListView.separated(
+                                                shrinkWrap: true,
+                                                padding: EdgeInsets.zero,
+                                                itemCount: assignedWorkers.length,
+                                                separatorBuilder: (_, _) => const Divider(height: 10, color: AppColors.borderSubtle),
+                                                itemBuilder: (context, wIdx) {
+                                                  final w = assignedWorkers[wIdx];
+                                                  return Row(
+                                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                                    children: [
+                                                      CircleAvatar(
+                                                        radius: 12,
+                                                        backgroundColor: AppColors.accentBlue,
+                                                        child: Text(w.initials, style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      Expanded(
+                                                        child: Text(
+                                                          w.fullName,
+                                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 8),
+                                                      _buildWorkerScheduleView(w.schedule, entry: workerRosterMap[w.userId]),
+                                                    ],
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                                   ),
                                 ],
-                                if (currentUser.role == UserRole.supervisor) ...[
-                                  const SizedBox(height: 10),
-                                  const Divider(height: 1, color: AppColors.border),
-                                  const SizedBox(height: 6),
+
+                                const SizedBox(height: 10),
+                                const Divider(height: 1, color: AppColors.border),
+                                const SizedBox(height: 8),
+                                if (currentUser.role == UserRole.admin)
+                                  // Sleek, borderless 2x2 action buttons matching card background with light hover dimming
+                                  Column(
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: TextButton.icon(
+                                              icon: Icon(
+                                                isExpanded ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                                size: 13,
+                                                color: AppColors.accentBlue,
+                                              ),
+                                              label: Text(
+                                                isExpanded ? 'Hide' : 'View',
+                                                style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.accentBlue),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              style: ButtonStyle(
+                                                padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
+                                                visualDensity: VisualDensity.compact,
+                                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                minimumSize: WidgetStateProperty.all(Size.zero),
+                                                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                                                  if (states.contains(WidgetState.hovered)) {
+                                                    return Colors.black.withValues(alpha: 0.05);
+                                                  }
+                                                  return isExpanded ? const Color(0xFFEBF5FF) : Colors.transparent;
+                                                }),
+                                                shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(5))),
+                                              ),
+                                              onPressed: () => _focusArea(area),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: TextButton.icon(
+                                              icon: const Icon(Icons.person_add_alt_1_outlined, size: 13, color: AppColors.accentEmerald),
+                                              label: const Text(
+                                                '+ Add Worker',
+                                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.accentEmerald),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              style: ButtonStyle(
+                                                padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
+                                                visualDensity: VisualDensity.compact,
+                                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                minimumSize: WidgetStateProperty.all(Size.zero),
+                                                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                                                  if (states.contains(WidgetState.hovered)) {
+                                                    return Colors.black.withValues(alpha: 0.05);
+                                                  }
+                                                  return Colors.transparent;
+                                                }),
+                                                shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(5))),
+                                              ),
+                                              onPressed: () => _showManageWorkersDialog(area),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: TextButton.icon(
+                                              icon: const Icon(Icons.edit_outlined, size: 13, color: AppColors.accentBlue),
+                                              label: const Text(
+                                                'Edit',
+                                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.accentBlue),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              style: ButtonStyle(
+                                                padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
+                                                visualDensity: VisualDensity.compact,
+                                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                minimumSize: WidgetStateProperty.all(Size.zero),
+                                                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                                                  if (states.contains(WidgetState.hovered)) {
+                                                    return Colors.black.withValues(alpha: 0.05);
+                                                  }
+                                                  return Colors.transparent;
+                                                }),
+                                                shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(5))),
+                                              ),
+                                              onPressed: () => _showEditAreaDialog(area),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: TextButton.icon(
+                                              icon: const Icon(Icons.delete_outline, size: 13, color: AppColors.brightRed),
+                                              label: const Text(
+                                                'Remove',
+                                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.brightRed),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              style: ButtonStyle(
+                                                padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
+                                                visualDensity: VisualDensity.compact,
+                                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                minimumSize: WidgetStateProperty.all(Size.zero),
+                                                backgroundColor: WidgetStateProperty.resolveWith((states) {
+                                                  if (states.contains(WidgetState.hovered)) {
+                                                    return Colors.black.withValues(alpha: 0.05);
+                                                  }
+                                                  return Colors.transparent;
+                                                }),
+                                                shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(5))),
+                                              ),
+                                              onPressed: () => _confirmDeleteArea(area),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  )
+                                else if (currentUser.role == UserRole.supervisor)
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.groups_outlined, size: 14),
-                                        label: const Text('View Workers', style: TextStyle(fontSize: 12)),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: AppColors.accentBlue,
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          minimumSize: Size.zero,
-                                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      Expanded(
+                                        child: TextButton.icon(
+                                          icon: Icon(
+                                            isExpanded ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                                            size: 13,
+                                            color: AppColors.accentBlue,
+                                          ),
+                                          label: Text(
+                                            isExpanded ? 'Hide' : 'View',
+                                            style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.accentBlue),
+                                          ),
+                                          style: ButtonStyle(
+                                            padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
+                                            visualDensity: VisualDensity.compact,
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            minimumSize: WidgetStateProperty.all(Size.zero),
+                                            backgroundColor: WidgetStateProperty.resolveWith((states) {
+                                              if (states.contains(WidgetState.hovered)) {
+                                                return Colors.black.withValues(alpha: 0.05);
+                                              }
+                                              return isExpanded ? const Color(0xFFEBF5FF) : Colors.transparent;
+                                            }),
+                                            shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(5))),
+                                          ),
+                                          onPressed: () => _focusArea(area),
                                         ),
-                                        onPressed: () => _showManageWorkersDialog(area),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Expanded(
+                                        child: TextButton.icon(
+                                          icon: const Icon(Icons.groups_outlined, size: 13, color: AppColors.accentBlue),
+                                          label: const Text(
+                                            'Manage Workers',
+                                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.accentBlue),
+                                          ),
+                                          style: ButtonStyle(
+                                            padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 4, vertical: 4)),
+                                            visualDensity: VisualDensity.compact,
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                            minimumSize: WidgetStateProperty.all(Size.zero),
+                                            backgroundColor: WidgetStateProperty.resolveWith((states) {
+                                              if (states.contains(WidgetState.hovered)) {
+                                                return Colors.black.withValues(alpha: 0.05);
+                                              }
+                                              return Colors.transparent;
+                                            }),
+                                            shape: WidgetStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(5))),
+                                          ),
+                                          onPressed: () => _showManageWorkersDialog(area),
+                                        ),
                                       ),
                                     ],
                                   ),
-                                ],
                               ],
                             ),
                           );
