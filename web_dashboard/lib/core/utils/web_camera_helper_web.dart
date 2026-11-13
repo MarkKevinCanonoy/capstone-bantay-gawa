@@ -153,58 +153,106 @@ class WebCameraHelper {
     }
   }
 
-  /// Open browser file picker restricted ONLY to images (jpg, jpeg, png, webp)
-  /// Strictly rejects video (mp4, mkv), audio (mp3), pdf, docs, etc.
+  /// Open browser file picker restricted to images (jpg, jpeg, png, webp)
+  /// Robust across laptops (Chrome, Edge, Safari, Firefox) and mobile web browsers.
   static Future<Uint8List?> pickImageFile({
     required Function(String errorMessage) onError,
   }) {
     final completer = Completer<Uint8List?>();
+    html.FileUploadInputElement? uploadInput;
+
+    void cleanup() {
+      try {
+        uploadInput?.remove();
+      } catch (_) {}
+    }
+
     try {
-      final uploadInput = html.FileUploadInputElement();
-      uploadInput.accept = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
-      uploadInput.click();
+      uploadInput = html.FileUploadInputElement()
+        ..accept = 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp'
+        ..style.display = 'none';
+
+      // Required by iOS Safari & modern Chrome for security validation
+      html.document.body?.children.add(uploadInput);
+
+      // Handle user cancel on supported browsers
+      uploadInput.addEventListener('cancel', (e) {
+        cleanup();
+        if (!completer.isCompleted) completer.complete(null);
+      });
 
       uploadInput.onChange.listen((e) {
-        final files = uploadInput.files;
-        if (files == null || files.isEmpty) {
-          completer.complete(null);
-          return;
-        }
-
-        final file = files[0];
-        final name = file.name.toLowerCase();
-        final allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
-        final hasAllowedExt = allowedExtensions.any((ext) => name.endsWith(ext));
-        final isImageMime = file.type.startsWith('image/');
-
-        if (!hasAllowedExt || !isImageMime) {
-          onError('Invalid file format. Only portrait image files (.jpg, .jpeg, .png, .webp) are accepted. Video, audio, PDF, and docs are not allowed.');
-          completer.complete(null);
-          return;
-        }
-
-        final reader = html.FileReader();
-        reader.readAsArrayBuffer(file);
-        reader.onLoadEnd.listen((event) {
-          try {
-            final result = reader.result;
-            if (result is Uint8List) {
-              completer.complete(result);
-            } else if (result is List<int>) {
-              completer.complete(Uint8List.fromList(result));
-            } else {
-              completer.complete(null);
-            }
-          } catch (err) {
-            onError('Failed to read image file data.');
-            completer.complete(null);
+        try {
+          final files = uploadInput?.files;
+          if (files == null || files.isEmpty) {
+            cleanup();
+            if (!completer.isCompleted) completer.complete(null);
+            return;
           }
-        });
+
+          final file = files[0];
+          final name = file.name.toLowerCase();
+          final allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+          final hasAllowedExt = allowedExtensions.any((ext) => name.endsWith(ext));
+          final isImageMime = file.type.isEmpty || file.type.startsWith('image/');
+
+          if (!hasAllowedExt && !isImageMime) {
+            cleanup();
+            onError('Invalid format. Please select an image file (.jpg, .png, or .webp).');
+            if (!completer.isCompleted) completer.complete(null);
+            return;
+          }
+
+          // Enforce reasonable size limit (10MB) for web performance
+          if (file.size > 10 * 1024 * 1024) {
+            cleanup();
+            onError('Selected image is too large (exceeds 10MB). Please select a smaller photo.');
+            if (!completer.isCompleted) completer.complete(null);
+            return;
+          }
+
+          final reader = html.FileReader();
+          reader.readAsArrayBuffer(file);
+
+          reader.onLoadEnd.listen((event) {
+            cleanup();
+            try {
+              final result = reader.result;
+              if (result is Uint8List) {
+                if (!completer.isCompleted) completer.complete(result);
+              } else if (result is ByteBuffer) {
+                if (!completer.isCompleted) completer.complete(result.asUint8List());
+              } else if (result is List<int>) {
+                if (!completer.isCompleted) completer.complete(Uint8List.fromList(result));
+              } else {
+                onError('Could not parse image data.');
+                if (!completer.isCompleted) completer.complete(null);
+              }
+            } catch (err) {
+              onError('Failed to read image data: $err');
+              if (!completer.isCompleted) completer.complete(null);
+            }
+          });
+
+          reader.onError.listen((event) {
+            cleanup();
+            onError('Error reading file from disk.');
+            if (!completer.isCompleted) completer.complete(null);
+          });
+        } catch (err) {
+          cleanup();
+          onError('Error selecting image: $err');
+          if (!completer.isCompleted) completer.complete(null);
+        }
       });
+
+      uploadInput.click();
     } catch (e) {
+      cleanup();
       onError('Unable to open file picker: $e');
-      completer.complete(null);
+      if (!completer.isCompleted) completer.complete(null);
     }
+
     return completer.future;
   }
 }

@@ -73,7 +73,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Step 2: Verification Code screen
-    expect(find.text('Enter 6-Digit Verification Code'), findsOneWidget);
+    expect(find.text('Enter Verification Code'), findsOneWidget);
 
     // Enter test verification code
     await tester.enterText(find.byType(TextField).first, '123456');
@@ -102,6 +102,14 @@ void main() {
 
     // Submit activation
     await tester.tap(find.text('Activate Account & Set Password'));
+    await tester.pumpAndSettle();
+
+    // Step 4: Register Biometric Quick-Login
+    expect(find.text('Register Biometric Quick-Login'), findsOneWidget);
+    final finishBtn = find.text('Complete Activation & Sign In').evaluate().isNotEmpty
+        ? find.text('Complete Activation & Sign In')
+        : find.text('Skip and Go to Sign In');
+    await tester.tap(finishBtn);
     await tester.pumpAndSettle();
 
     // Successfully transitioned back to login with email prefilled
@@ -160,9 +168,9 @@ void main() {
     await tester.tap(find.text('Send Verification Code'));
     await tester.pumpAndSettle();
 
-    // Verify OTP
-    expect(find.text('Enter 6-Digit Verification Code'), findsOneWidget);
-    await tester.enterText(find.byType(TextField).first, '123456');
+    // Verify OTP (accepts 8-digit OTP as returned by Supabase)
+    expect(find.text('Enter Verification Code'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, '12345678');
     await tester.tap(find.text('Verify Code & Proceed'));
     await tester.pumpAndSettle();
 
@@ -180,5 +188,166 @@ void main() {
 
     // Returned to login view
     expect(find.text('BantayGawa Portal'), findsOneWidget);
+  });
+
+  testWidgets('LoginView enforces password authentication and blocks login with wrong password', (tester) async {
+    final mockRepo = MockRepository(
+      initialUsers: [
+        UserModel(
+          userId: 'user-admin',
+          username: 'admin@ormoc.gov.ph',
+          firstName: 'Mark Kevin',
+          lastName: 'Canonoy',
+          contactNumber: '+63 917 555 0199',
+          role: UserRole.admin,
+          status: 'active',
+          schedule: 'Mon-Fri 08:00 - 17:00',
+        ),
+      ],
+    );
+
+    tester.view.physicalSize = const Size(1280, 1024);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          dataRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+        child: const MaterialApp(
+          home: LoginView(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Enter valid email but intentionally wrong password
+    final textFields = find.byType(TextField);
+    await tester.enterText(textFields.at(0), 'admin@ormoc.gov.ph');
+    await tester.enterText(textFields.at(1), 'wrong_password');
+
+    // Tap Log In
+    await tester.tap(find.text('Log In'));
+    await tester.pumpAndSettle();
+
+    // Verify error toast was shown and did NOT advance to OTP
+    expect(find.textContaining('Incorrect password'), findsOneWidget);
+    expect(find.text('Enter Verification Code'), findsNothing);
+    expect(find.text('Password'), findsOneWidget);
+  });
+
+  testWidgets('LoginView allows demo account markkevincanonoy99@gmail.com to bypass via AuthConfig', (tester) async {
+    final mockRepo = MockRepository(
+      initialUsers: [
+        UserModel(
+          userId: 'user-demo-admin',
+          username: 'markkevincanonoy99@gmail.com',
+          firstName: 'Mark Kevin',
+          lastName: 'Canonoy',
+          contactNumber: '+63 917 555 0199',
+          role: UserRole.admin,
+          status: 'active',
+          schedule: 'Mon-Fri 08:00 - 17:00',
+        ),
+      ],
+    );
+
+    tester.view.physicalSize = const Size(1280, 1024);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          dataRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+        child: const MaterialApp(
+          home: LoginView(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Enter demo account
+    final textFields = find.byType(TextField);
+    await tester.enterText(textFields.at(0), 'markkevincanonoy99@gmail.com');
+    await tester.enterText(textFields.at(1), 'any_password');
+
+    // Tap Log In
+    await tester.tap(find.text('Log In'));
+    await tester.pumpAndSettle();
+
+    // Verify demo bypass message is displayed and OTP is skipped
+    expect(find.textContaining('Demo Mode - OTP bypassed'), findsOneWidget);
+  });
+
+  testWidgets('LoginView OTP input validates 6-8 digit length and handles Resend code button', (tester) async {
+    final mockRepo = MockRepository(
+      initialUsers: [
+        UserModel(
+          userId: 'user-admin',
+          username: 'admin@ormoc.gov.ph',
+          firstName: 'Mark Kevin',
+          lastName: 'Canonoy',
+          contactNumber: '+63 917 555 0199',
+          role: UserRole.admin,
+          status: 'active',
+          schedule: 'Mon-Fri 08:00 - 17:00',
+        ),
+      ],
+    );
+
+    tester.view.physicalSize = const Size(1280, 1024);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          dataRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+        child: const MaterialApp(
+          home: LoginView(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // 1. Switch to Forgot Password
+    await tester.tap(find.text('Forgot Password?'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'admin@ormoc.gov.ph');
+    await tester.tap(find.text('Send Verification Code'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter Verification Code'), findsOneWidget);
+
+    // 2. Test short OTP (< 6 digits) shows clean "Enter verification code." error
+    await tester.enterText(find.byType(TextField).first, '1234');
+    await tester.tap(find.text('Verify Code & Proceed'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Enter verification code.'), findsOneWidget);
+
+    // 3. Test Resend code button starts cooldown
+    // Notice cooldown was already started by sending initial verification code (60s)
+    expect(find.textContaining('Resend'), findsOneWidget);
+
+    // 4. Test entering valid 8-digit OTP (e.g. 12345678) proceeds to password setup
+    await tester.enterText(find.byType(TextField).first, '12345678');
+    await tester.tap(find.text('Verify Code & Proceed'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('New Password'), findsOneWidget);
   });
 }

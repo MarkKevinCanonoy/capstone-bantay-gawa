@@ -858,14 +858,43 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(currentUserProvider);
+    final isSupervisor = currentUser.role == UserRole.supervisor;
     final query = ScheduleSheetsQuery(month: _selectedMonth, year: _selectedYear);
     final remoteSheetsAsync = ref.watch(scheduleSheetsProvider(query));
     final workAreasAsync = ref.watch(workAreasProvider);
-    final workAreas = workAreasAsync.value ?? [];
+    final rawWorkAreas = workAreasAsync.value ?? [];
+    final workAreas = isSupervisor
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            (currentUser.assignedAreaId != null &&
+                currentUser.assignedAreaId!.isNotEmpty &&
+                a.workareaId == currentUser.assignedAreaId) ||
+            (currentUser.assignedAreaName != null &&
+                currentUser.assignedAreaName!.isNotEmpty &&
+                currentUser.assignedAreaName != 'Unassigned' &&
+                a.name.toLowerCase() == currentUser.assignedAreaName!.toLowerCase())
+          ).toList()
+        : rawWorkAreas;
     ref.watch(employeesProvider);
 
     remoteSheetsAsync.whenData((remoteList) {
-      _syncWithRemote(remoteList);
+      final scopedList = isSupervisor
+          ? (workAreas.isEmpty
+              ? <ScheduleSheetModel>[]
+              : remoteList.map((s) {
+                  final scopedEntries = s.entries.where((e) =>
+                      workAreas.any((a) =>
+                          a.workareaId == e.assignedAreaId ||
+                          (e.assignedAreaName.isNotEmpty &&
+                              a.name.toLowerCase() == e.assignedAreaName.toLowerCase()))
+                  ).toList();
+                  return s.copyWith(entries: scopedEntries);
+                }).where((s) => s.entries.isNotEmpty).toList())
+          : remoteList;
+      _syncWithRemote(scopedList);
     });
 
     final currentSheet = _activeSheetId != null ? _localSheets[_activeSheetId] : null;
@@ -886,13 +915,12 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Top Navigation / Action Bar
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    OutlinedButton.icon(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isStacked = constraints.maxWidth < 950;
+              final navAndTitle = Row(
+                children: [
+                  OutlinedButton.icon(
                     icon: const Icon(Icons.arrow_back, size: 16),
                     label: const Text('Back to Attendance'),
                     style: OutlinedButton.styleFrom(
@@ -908,18 +936,17 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             const Icon(Icons.table_chart_rounded, color: Color(0xFF107C41), size: 24),
-                            const SizedBox(width: 8),
-                            const Flexible(
-                              child: Text(
-                                'Worker Schedule Management',
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                            Text(
+                              isSupervisor ? 'Team Schedule Roster' : 'Worker Schedule Management',
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
@@ -927,27 +954,27 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(color: const Color(0xFF107C41).withValues(alpha: 0.3)),
                               ),
-                              child: const Text('EXCEL WORKBOOK FORMAT',
-                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF107C41))),
+                              child: Text(isSupervisor ? 'SECTOR ROSTER' : 'EXCEL WORKBOOK FORMAT',
+                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF107C41))),
                             ),
                           ],
                         ),
                         const SizedBox(height: 2),
-                        const Text(
-                          'Manage monthly rotation sheets and employee schedules determined by the monthly raffle draw.',
-                          style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                        Text(
+                          isSupervisor
+                              ? 'View official schedule assignments and designated off-days for your assigned sectors.'
+                              : 'Manage monthly rotation sheets and employee schedules determined by the monthly raffle draw.',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
                 ],
-              ),
-            ),
-            const SizedBox(width: 16),
+              );
 
-            // Month & Year Picker + Save Action
-              Row(
+              final pickerAndAction = Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   // Month Picker Dropdown
                   Container(
@@ -1011,16 +1038,56 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                   ),
                   const SizedBox(width: 12),
 
-                  // Save Changes Button
-                  AppButton(
-                    label: _isSaving ? 'Saving...' : 'Save Schedule',
-                    icon: Icons.save_rounded,
-                    variant: _hasUnsavedChanges ? ButtonVariant.primary : ButtonVariant.outline,
-                    onPressed: _isSaving ? null : _saveAllChanges,
-                  ),
+                  // Save Changes Button or Read-Only Pill
+                  if (isSupervisor)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceSubtle,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.lock_outline, size: 14, color: AppColors.textMuted),
+                          SizedBox(width: 6),
+                          Text(
+                            'Read-Only Team Roster',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    AppButton(
+                      label: _isSaving ? 'Saving...' : 'Save Schedule',
+                      icon: Icons.save_rounded,
+                      variant: _hasUnsavedChanges ? ButtonVariant.primary : ButtonVariant.outline,
+                      onPressed: _isSaving ? null : _saveAllChanges,
+                    ),
                 ],
-              ),
-            ],
+              );
+
+              if (isStacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    navAndTitle,
+                    const SizedBox(height: 12),
+                    pickerAndAction,
+                  ],
+                );
+              }
+
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(child: navAndTitle),
+                  const SizedBox(width: 16),
+                  pickerAndAction,
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
 
@@ -1099,7 +1166,7 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                                       ),
                                     ),
                                   ),
-                                  if (isActive) ...[
+                                  if (isActive && !isSupervisor) ...[
                                     const SizedBox(width: 6),
                                     PopupMenuButton<String>(
                                       icon: const Icon(Icons.more_vert, size: 14, color: AppColors.textSecondary),
@@ -1123,12 +1190,13 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                             ),
                           );
                         }),
-                        // + Add Sheet Tab
-                        TextButton.icon(
-                          icon: const Icon(Icons.add, size: 16, color: Color(0xFF107C41)),
-                          label: const Text('Add Sheet', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF107C41))),
-                          onPressed: _addNewSheetDialog,
-                        ),
+                        // + Add Sheet Tab (Admin Only)
+                        if (!isSupervisor)
+                          TextButton.icon(
+                            icon: const Icon(Icons.add, size: 16, color: Color(0xFF107C41)),
+                            label: const Text('Add Sheet', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF107C41))),
+                            onPressed: _addNewSheetDialog,
+                          ),
                       ],
                     ),
                   ),
@@ -1161,7 +1229,7 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (currentSheet != null)
+                if (currentSheet != null && !isSupervisor)
                   ElevatedButton.icon(
                     icon: const Icon(Icons.person_add_rounded, size: 15),
                     label: const Text('Add Worker'),
@@ -1197,32 +1265,42 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                           const SizedBox(height: 12),
                           Text(
                             currentSheet == null
-                                ? 'No schedule sheets found for this month.'
+                                ? (isSupervisor && workAreas.isEmpty
+                                    ? 'No work areas currently assigned to your supervisory oversight.'
+                                    : 'No schedule sheets found for this month.')
                                 : 'No workers assigned to "${currentSheet.sheetName}" yet.',
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             currentSheet == null
-                                ? 'Click "Add Sheet" to create a new sector schedule sheet for ${DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth))}.'
-                                : 'Click "Add Worker" to populate this monthly schedule following the raffle draw.',
+                                ? (isSupervisor
+                                    ? (workAreas.isEmpty
+                                        ? 'Team schedule sheets will appear here once an administrator assigns a work sector to you.'
+                                        : 'No schedule records have been authorized for your assigned sectors in ${DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth))}.')
+                                    : 'Click "Add Sheet" to create a new sector schedule sheet for ${DateFormat('MMMM yyyy').format(DateTime(_selectedYear, _selectedMonth))}.')
+                                : (isSupervisor
+                                    ? 'Workers assigned to your sector will appear here once schedules are confirmed by the administrator.'
+                                    : 'Click "Add Worker" to populate this monthly schedule following the raffle draw.'),
                             style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                           ),
-                          const SizedBox(height: 16),
-                          if (currentSheet != null)
-                            ElevatedButton.icon(
-                              icon: const Icon(Icons.person_add_rounded, size: 16),
-                              label: const Text('Add Worker Now'),
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF107C41), foregroundColor: Colors.white),
-                              onPressed: () => _addWorkerToSheetDialog(currentSheet),
-                            )
-                          else
-                            ElevatedButton.icon(
-                              icon: const Icon(Icons.post_add_rounded, size: 16),
-                              label: const Text('Add Schedule Sheet'),
-                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF107C41), foregroundColor: Colors.white),
-                              onPressed: _addNewSheetDialog,
-                            ),
+                          if (!isSupervisor) ...[
+                            const SizedBox(height: 16),
+                            if (currentSheet != null)
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.person_add_rounded, size: 16),
+                                label: const Text('Add Worker Now'),
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF107C41), foregroundColor: Colors.white),
+                                onPressed: () => _addWorkerToSheetDialog(currentSheet),
+                              )
+                            else
+                              ElevatedButton.icon(
+                                icon: const Icon(Icons.post_add_rounded, size: 16),
+                                label: const Text('Add Schedule Sheet'),
+                                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF107C41), foregroundColor: Colors.white),
+                                onPressed: _addNewSheetDialog,
+                              ),
+                          ],
                         ],
                       ),
                     )
@@ -1242,49 +1320,50 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                                 horizontalInside: BorderSide(color: Color(0xFFE2E8F0), width: 1),
                                 verticalInside: BorderSide(color: Color(0xFFE2E8F0), width: 1),
                               ),
-                              columns: const [
-                                DataColumn(
+                              columns: [
+                                const DataColumn(
                                   label: Text(
                                     'No.',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
                                   ),
                                 ),
-                                DataColumn(
+                                const DataColumn(
                                   label: Text(
                                     "Worker's Name",
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
                                   ),
                                 ),
-                                DataColumn(
+                                const DataColumn(
                                   label: Text(
                                     'Assigned Area',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
                                   ),
                                 ),
-                                DataColumn(
+                                const DataColumn(
                                   label: Text(
                                     'Day Off',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
                                   ),
                                 ),
-                                DataColumn(
+                                const DataColumn(
                                   label: Text(
                                     'Time Schedule',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
                                   ),
                                 ),
-                                DataColumn(
+                                const DataColumn(
                                   label: Text(
                                     'Status / Remarks',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
                                   ),
                                 ),
-                                DataColumn(
-                                  label: Text(
-                                    'Actions',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
+                                if (!isSupervisor)
+                                  const DataColumn(
+                                    label: Text(
+                                      'Actions',
+                                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary),
+                                    ),
                                   ),
-                                ),
                               ],
                               rows: List.generate(filteredEntries.length, (index) {
                                 final entry = filteredEntries[index];
@@ -1318,36 +1397,93 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                                         ],
                                       ),
                                     ),
-                                    // 3. Assigned Area (Dropdown editor)
+                                    // 3. Assigned Area
                                     DataCell(
-                                      DropdownButtonHideUnderline(
-                                        child: DropdownButton<String>(
-                                          value: workAreas.any((a) => a.workareaId == entry.assignedAreaId)
-                                              ? entry.assignedAreaId
-                                              : (workAreas.isNotEmpty ? workAreas.first.workareaId : null),
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                                          items: workAreas.map((a) {
-                                            return DropdownMenuItem(value: a.workareaId, child: Text(a.name));
-                                          }).toList(),
-                                          onChanged: (val) {
-                                            if (val != null) {
-                                              final found = workAreas.firstWhere((a) => a.workareaId == val);
-                                              _updateEntry(
-                                                currentSheet,
-                                                entry,
-                                                assignedAreaId: val,
-                                                assignedAreaName: found.name,
-                                              );
-                                            }
-                                          },
-                                        ),
-                                      ),
+                                      isSupervisor
+                                          ? Text(
+                                              entry.assignedAreaName.isNotEmpty ? entry.assignedAreaName : 'Assigned Sector',
+                                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                                            )
+                                          : DropdownButtonHideUnderline(
+                                              child: DropdownButton<String>(
+                                                value: workAreas.any((a) => a.workareaId == entry.assignedAreaId)
+                                                    ? entry.assignedAreaId
+                                                    : (workAreas.isNotEmpty ? workAreas.first.workareaId : null),
+                                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                                                items: workAreas.map((a) {
+                                                  return DropdownMenuItem(value: a.workareaId, child: Text(a.name));
+                                                }).toList(),
+                                                onChanged: (val) {
+                                                  if (val != null) {
+                                                    final found = workAreas.firstWhere((a) => a.workareaId == val);
+                                                    _updateEntry(
+                                                      currentSheet,
+                                                      entry,
+                                                      assignedAreaId: val,
+                                                      assignedAreaName: found.name,
+                                                    );
+                                                  }
+                                                },
+                                              ),
+                                            ),
                                     ),
-                                    // 4. Day Off (Flexible Multi-Select Chip Picker)
+                                    // 4. Day Off
                                     DataCell(
                                       Builder(
                                         builder: (c) {
                                           final daysList = _parseDayOffList(entry.dayOff);
+                                          final content = Container(
+                                            constraints: const BoxConstraints(minWidth: 140),
+                                            padding: const EdgeInsets.symmetric(vertical: 4),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                if (daysList.isEmpty)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: AppColors.surfaceSubtle,
+                                                      borderRadius: BorderRadius.circular(4),
+                                                      border: Border.all(color: AppColors.border),
+                                                    ),
+                                                    child: const Text('None (7-day)', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                                  )
+                                                else
+                                                  Flexible(
+                                                    child: Wrap(
+                                                      spacing: 4,
+                                                      runSpacing: 4,
+                                                      children: daysList.map((d) {
+                                                        final short = d.length > 3 ? d.substring(0, 3) : d;
+                                                        return Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: const Color(0xFFD97706).withValues(alpha: 0.12),
+                                                            borderRadius: BorderRadius.circular(4),
+                                                            border: Border.all(color: const Color(0xFFD97706).withValues(alpha: 0.3)),
+                                                          ),
+                                                          child: Text(
+                                                            short,
+                                                            style: const TextStyle(
+                                                              fontSize: 11,
+                                                              fontWeight: FontWeight.bold,
+                                                              color: Color(0xFFB45309),
+                                                            ),
+                                                          ),
+                                                        );
+                                                      }).toList(),
+                                                    ),
+                                                  ),
+                                                if (!isSupervisor) ...[
+                                                  const SizedBox(width: 4),
+                                                  const Icon(Icons.edit_calendar_outlined, size: 14, color: AppColors.textLight),
+                                                ],
+                                              ],
+                                            ),
+                                          );
+
+                                          if (isSupervisor) return content;
+
                                           return InkWell(
                                             borderRadius: BorderRadius.circular(6),
                                             onTap: () {
@@ -1357,133 +1493,103 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                                                 onSelected: (newDays) => _updateEntry(currentSheet, entry, dayOff: newDays),
                                               );
                                             },
-                                            child: Container(
-                                              constraints: const BoxConstraints(minWidth: 140),
-                                              padding: const EdgeInsets.symmetric(vertical: 4),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  if (daysList.isEmpty)
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                      decoration: BoxDecoration(
-                                                        color: AppColors.surfaceSubtle,
-                                                        borderRadius: BorderRadius.circular(4),
-                                                        border: Border.all(color: AppColors.border),
+                                            child: content,
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    // 5. Time Schedule
+                                    DataCell(
+                                      Builder(
+                                        builder: (c) {
+                                          final content = Padding(
+                                            padding: const EdgeInsets.symmetric(vertical: 4),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFF2563EB).withValues(alpha: 0.08),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                    border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.25)),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      const Icon(Icons.schedule_rounded, size: 13, color: Color(0xFF2563EB)),
+                                                      const SizedBox(width: 4),
+                                                      Text(
+                                                        entry.timeSchedule,
+                                                        style: const TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: Color(0xFF1E40AF),
+                                                        ),
                                                       ),
-                                                      child: const Text('None (7-day)', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                                    )
-                                                  else
-                                                    Flexible(
-                                                      child: Wrap(
-                                                        spacing: 4,
-                                                        runSpacing: 4,
-                                                        children: daysList.map((d) {
-                                                          final short = d.length > 3 ? d.substring(0, 3) : d;
-                                                          return Container(
-                                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                            decoration: BoxDecoration(
-                                                              color: const Color(0xFFD97706).withValues(alpha: 0.12),
-                                                              borderRadius: BorderRadius.circular(4),
-                                                              border: Border.all(color: const Color(0xFFD97706).withValues(alpha: 0.3)),
-                                                            ),
-                                                            child: Text(
-                                                              short,
-                                                              style: const TextStyle(
-                                                                fontSize: 11,
-                                                                fontWeight: FontWeight.bold,
-                                                                color: Color(0xFFB45309),
-                                                              ),
-                                                            ),
-                                                          );
-                                                        }).toList(),
-                                                      ),
-                                                    ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                if (!isSupervisor) ...[
                                                   const SizedBox(width: 4),
-                                                  const Icon(Icons.edit_calendar_outlined, size: 14, color: AppColors.textLight),
+                                                  const Icon(Icons.edit, size: 12, color: AppColors.textLight),
                                                 ],
-                                              ),
+                                              ],
                                             ),
                                           );
-                                        },
-                                      ),
-                                    ),
-                                    // 5. Time Schedule (Custom Start & End Time Picker)
-                                    DataCell(
-                                      InkWell(
-                                        borderRadius: BorderRadius.circular(6),
-                                        onTap: () {
-                                          _showTimeSchedulePicker(
-                                            context: context,
-                                            currentTimeSchedule: entry.timeSchedule,
-                                            onSelected: (newTime) => _updateEntry(currentSheet, entry, timeSchedule: newTime),
+
+                                          if (isSupervisor) return content;
+
+                                          return InkWell(
+                                            borderRadius: BorderRadius.circular(6),
+                                            onTap: () {
+                                              _showTimeSchedulePicker(
+                                                context: context,
+                                                currentTimeSchedule: entry.timeSchedule,
+                                                onSelected: (newTime) => _updateEntry(currentSheet, entry, timeSchedule: newTime),
+                                              );
+                                            },
+                                            child: content,
                                           );
                                         },
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 4),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(0xFF2563EB).withValues(alpha: 0.08),
-                                                  borderRadius: BorderRadius.circular(6),
-                                                  border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.25)),
+                                      ),
+                                    ),
+                                    // 6. Status / Remarks
+                                    DataCell(
+                                      isSupervisor
+                                          ? Text(
+                                              entry.statusRemarks.isNotEmpty ? entry.statusRemarks : 'Active',
+                                              style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                                            )
+                                          : SizedBox(
+                                              width: 170,
+                                              height: 32,
+                                              child: TextFormField(
+                                                key: ValueKey('remarks-${entry.entryId}-${entry.statusRemarks}'),
+                                                initialValue: entry.statusRemarks,
+                                                style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                                                decoration: const InputDecoration(
+                                                  hintText: 'Enter notes...',
+                                                  hintStyle: TextStyle(fontSize: 11, color: AppColors.textLight),
+                                                  contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  border: OutlineInputBorder(),
+                                                  isDense: true,
                                                 ),
-                                                child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    const Icon(Icons.schedule_rounded, size: 13, color: Color(0xFF2563EB)),
-                                                    const SizedBox(width: 4),
-                                                    Text(
-                                                      entry.timeSchedule,
-                                                      style: const TextStyle(
-                                                        fontSize: 11,
-                                                        fontWeight: FontWeight.bold,
-                                                        color: Color(0xFF1E40AF),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
+                                                onChanged: (val) {
+                                                  _updateEntry(currentSheet, entry, statusRemarks: val.trim());
+                                                },
                                               ),
-                                              const SizedBox(width: 4),
-                                              const Icon(Icons.edit, size: 12, color: AppColors.textLight),
-                                            ],
-                                          ),
+                                            ),
+                                    ),
+                                    // 7. Actions (Delete from sheet - Admin Only)
+                                    if (!isSupervisor)
+                                      DataCell(
+                                        IconButton(
+                                          icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                          tooltip: 'Remove worker from this schedule sheet',
+                                          onPressed: () => _removeEntry(currentSheet, entry),
                                         ),
                                       ),
-                                    ),
-                                    // 6. Status / Remarks (Empty text input note field)
-                                    DataCell(
-                                      SizedBox(
-                                        width: 170,
-                                        height: 32,
-                                        child: TextFormField(
-                                          key: ValueKey('remarks-${entry.entryId}-${entry.statusRemarks}'),
-                                          initialValue: entry.statusRemarks,
-                                          style: const TextStyle(fontSize: 12, color: AppColors.textPrimary),
-                                          decoration: const InputDecoration(
-                                            hintText: 'Enter notes...',
-                                            hintStyle: TextStyle(fontSize: 11, color: AppColors.textLight),
-                                            contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                            border: OutlineInputBorder(),
-                                            isDense: true,
-                                          ),
-                                          onChanged: (val) {
-                                            _updateEntry(currentSheet, entry, statusRemarks: val.trim());
-                                          },
-                                        ),
-                                      ),
-                                    ),
-                                    // 7. Actions (Delete from sheet)
-                                    DataCell(
-                                      IconButton(
-                                        icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                                        tooltip: 'Remove worker from this schedule sheet',
-                                        onPressed: () => _removeEntry(currentSheet, entry),
-                                      ),
-                                    ),
                                   ],
                                 );
                               }),

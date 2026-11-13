@@ -159,9 +159,60 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
 
     try {
       final repo = ref.read(dataRepositoryProvider);
-      final sheets = await repo.getScheduleSheets(month: targetMonth, year: targetYear);
+      final currentUser = ref.read(currentUserProvider);
+      final allSheets = await repo.getScheduleSheets(month: targetMonth, year: targetYear);
       final allLogs = await repo.getAttendanceLogs();
       final allLeaves = await repo.getLeaveRequests();
+
+      List<ScheduleSheetModel> sheets = allSheets;
+      if (currentUser.role == UserRole.supervisor) {
+        final rawWorkAreas = await repo.getWorkAreas();
+        final assignedAreas = rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            (currentUser.assignedAreaId != null &&
+                currentUser.assignedAreaId!.isNotEmpty &&
+                a.workareaId == currentUser.assignedAreaId) ||
+            (currentUser.assignedAreaName != null &&
+                currentUser.assignedAreaName!.isNotEmpty &&
+                currentUser.assignedAreaName != 'Unassigned' &&
+                a.name.toLowerCase() == currentUser.assignedAreaName!.toLowerCase())).toList();
+
+        if (assignedAreas.isEmpty) {
+          if (mounted) {
+            ToastNotification.show(
+              context,
+              message: 'No work areas currently assigned to your supervisory oversight.',
+              type: ToastType.warning,
+            );
+          }
+          return;
+        }
+
+        sheets = allSheets.map((s) {
+          final scopedEntries = s.entries.where((e) =>
+              assignedAreas.any((a) =>
+                  a.workareaId == e.assignedAreaId ||
+                  (e.assignedAreaName.isNotEmpty &&
+                      a.name.toLowerCase() == e.assignedAreaName.toLowerCase()))
+          ).toList();
+          return s.copyWith(entries: scopedEntries);
+        }).where((s) => s.entries.isNotEmpty).toList();
+      }
+
+      if (sheets.isEmpty) {
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: currentUser.role == UserRole.supervisor
+                ? 'No schedule records found for your assigned sectors in $monthLabel.'
+                : 'No schedule records found for $monthLabel.',
+            type: ToastType.warning,
+          );
+        }
+        return;
+      }
 
       final xlsxBytes = await OfficialAttendanceExcelHelper.generateMonthlyAttendanceWorkbook(
         sheets: sheets,
@@ -214,22 +265,26 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
   @override
   Widget build(BuildContext context) {
     final currentUser = ref.watch(currentUserProvider);
+    final isSupervisor = currentUser.role == UserRole.supervisor;
     final attendanceAsync = ref.watch(attendanceProvider);
     final workAreasAsync = ref.watch(workAreasProvider);
     final globalSearch = ref.watch(globalSearchProvider).toLowerCase();
     final rawLogs = attendanceAsync.value ?? [];
     final rawWorkAreas = workAreasAsync.value ?? [];
-    final workAreas = currentUser.role == UserRole.supervisor
+    final workAreas = isSupervisor
         ? rawWorkAreas.where((a) =>
             a.supervisorId == currentUser.userId ||
             (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
-            a.workareaId == currentUser.assignedAreaId ||
-            a.name == currentUser.assignedAreaName).toList()
-        : rawWorkAreas;
-    final logs = currentUser.role == UserRole.supervisor
-        ? rawLogs.where((log) =>
-            workAreas.any((a) => a.workareaId == log.workareaId || a.name.toLowerCase() == log.areaName.toLowerCase())
+            (currentUser.assignedAreaId != null && currentUser.assignedAreaId!.isNotEmpty && a.workareaId == currentUser.assignedAreaId) ||
+            (currentUser.assignedAreaName != null && currentUser.assignedAreaName!.isNotEmpty && currentUser.assignedAreaName != 'Unassigned' && a.name.toLowerCase() == currentUser.assignedAreaName!.toLowerCase())
           ).toList()
+        : rawWorkAreas;
+    final logs = isSupervisor
+        ? (workAreas.isEmpty
+            ? <AttendanceModel>[]
+            : rawLogs.where((log) =>
+                workAreas.any((a) => a.workareaId == log.workareaId || a.name.toLowerCase() == log.areaName.toLowerCase())
+              ).toList())
         : rawLogs;
 
     final filteredLogs = logs.where((log) {
@@ -249,10 +304,16 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     // Merge in workers who are on approved leave today
     final leavesAsync = ref.watch(leaveRequestsProvider);
     final rawLeaves = leavesAsync.value ?? [];
-    if (_selectedDate != null) {
+    if (_selectedDate != null && (!isSupervisor || workAreas.isNotEmpty)) {
       final selectedDateMidnight = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day);
       final activeApprovedLeaves = rawLeaves.where((l) {
         if (l.status.toLowerCase() != 'approved') return false;
+        if (isSupervisor) {
+          final inSupervisorArea = workAreas.any((a) =>
+              (l.workareaId != null && a.workareaId == l.workareaId) ||
+              a.name.toLowerCase() == l.areaName.toLowerCase());
+          if (!inSupervisorArea) return false;
+        }
         final start = DateTime.tryParse(l.startDate);
         final end = DateTime.tryParse(l.endDate);
         if (start == null || end == null) return false;
@@ -320,12 +381,14 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                 label: _isExporting ? 'Exporting...' : 'Export Excel (${DateFormat('MMM yyyy').format(_selectedWeekStart)})',
                 icon: Icons.file_download_outlined,
                 variant: ButtonVariant.outline,
-                onPressed: _isExporting ? null : _exportMonthlyAttendanceToExcel,
+                onPressed: (_isExporting || (isSupervisor && workAreas.isEmpty)) ? null : _exportMonthlyAttendanceToExcel,
               ),
               const SizedBox(width: 10),
               // Button to open Worker Schedule Management (Excel Interface)
               AppButton(
-                label: 'Manage Worker Schedules',
+                label: currentUser.role == UserRole.supervisor
+                    ? 'View Team Schedules'
+                    : 'Manage Worker Schedules',
                 icon: Icons.table_chart_rounded,
                 variant: ButtonVariant.primary,
                 onPressed: () => setState(() => _isManagingSchedules = true),
@@ -540,13 +603,19 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                           items: [
                             DropdownMenuItem(
                               value: 'all',
-                              child: Text(currentUser.role == UserRole.supervisor ? 'All Assigned Sectors' : 'All Ormoc Sectors'),
+                              child: Text(
+                                isSupervisor
+                                    ? (workAreas.isEmpty ? 'No Assigned Sectors' : 'All Assigned Sectors')
+                                    : 'All Ormoc Sectors',
+                              ),
                             ),
                             ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name))),
                           ],
-                          onChanged: (val) {
-                            if (val != null) setState(() => _filterArea = val);
-                          },
+                          onChanged: (isSupervisor && workAreas.isEmpty)
+                              ? null
+                              : (val) {
+                                  if (val != null) setState(() => _filterArea = val);
+                                },
                         ),
                       ),
                     ),
@@ -565,14 +634,31 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.event_busy_outlined, size: 40, color: AppColors.textLight),
+                    Icon(
+                      isSupervisor && workAreas.isEmpty
+                          ? Icons.assignment_late_outlined
+                          : Icons.event_busy_outlined,
+                      size: 40,
+                      color: AppColors.textLight,
+                    ),
                     const SizedBox(height: 12),
                     Text(
-                      _selectedDate == null
-                          ? 'No attendance records found matching filters'
-                          : 'No attendance records found for this sector on ${DateFormat('MMM d, yyyy').format(_selectedDate!)}',
-                      style: const TextStyle(fontSize: 14, color: AppColors.textMuted),
+                      isSupervisor && workAreas.isEmpty
+                          ? 'No work areas currently assigned to your supervisory oversight.'
+                          : (_selectedDate == null
+                              ? 'No attendance records found matching filters'
+                              : 'No attendance records found for this sector on ${DateFormat('MMM d, yyyy').format(_selectedDate!)}'),
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                      textAlign: TextAlign.center,
                     ),
+                    if (isSupervisor && workAreas.isEmpty) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Real-time biometric attendance records will appear here once an administrator assigns a work sector to you.',
+                        style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ],
                 ),
               ),

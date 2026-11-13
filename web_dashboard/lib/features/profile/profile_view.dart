@@ -1,11 +1,18 @@
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/constants/auth_config.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/webauthn_helper.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/toast_notification.dart';
+import '../../core/widgets/user_avatar.dart';
+import '../../data/models/passkey_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
 
@@ -17,6 +24,105 @@ class ProfileView extends ConsumerStatefulWidget {
 }
 
 class _ProfileViewState extends ConsumerState<ProfileView> {
+  bool _isRegisteringDevice = false;
+
+  void _registerNewDevice(UserModel user) async {
+    final isSupported = await WebAuthnHelper.isPlatformBiometricAvailable();
+    if (!isSupported) {
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'No hardware biometric sensor (Windows Hello / Touch ID / Fingerprint) detected on this browser or machine.',
+          type: ToastType.warning,
+        );
+      }
+      return;
+    }
+
+    setState(() => _isRegisteringDevice = true);
+    try {
+      final randomBytes = List<int>.generate(32, (_) => Random.secure().nextInt(256));
+      final challenge = base64UrlEncode(randomBytes);
+
+      final result = await WebAuthnHelper.registerBiometric(
+        challengeBase64: challenge,
+        userId: user.userId,
+        userEmail: user.username,
+        userDisplayName: user.fullName,
+      );
+
+      if (!result.success) {
+        setState(() => _isRegisteringDevice = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: result.error ?? 'Biometric enrollment failed.',
+            type: ToastType.info,
+          );
+        }
+        return;
+      }
+
+      final repo = ref.read(dataRepositoryProvider);
+      final newPasskey = PasskeyModel(
+        passkeyId: '',
+        userId: user.userId,
+        credentialId: result.credentialId!,
+        publicKey: result.publicKey,
+        deviceName: result.deviceName ?? WebAuthnHelper.getDeviceName(),
+        createdAt: DateTime.now(),
+      );
+      await repo.addPasskey(newPasskey);
+      ref.invalidate(userPasskeysProvider(user.userId));
+
+      setState(() => _isRegisteringDevice = false);
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Device "${newPasskey.deviceName}" enrolled successfully for 1-click Biometric Login!',
+          type: ToastType.success,
+        );
+      }
+    } catch (e) {
+      setState(() => _isRegisteringDevice = false);
+      if (mounted) {
+        ToastNotification.show(context, message: 'Enrollment error: $e', type: ToastType.error);
+      }
+    }
+  }
+
+  void _deleteDevice(PasskeyModel passkey, UserModel user) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Revoke Biometric Passkey'),
+        content: Text('Are you sure you want to revoke biometric sign-in for "${passkey.deviceName}"? You will need to log in with password + OTP on that device.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.brightRed),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Revoke Device', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await ref.read(dataRepositoryProvider).deletePasskey(passkey.passkeyId);
+        ref.invalidate(userPasskeysProvider(user.userId));
+        if (mounted) {
+          ToastNotification.show(context, message: 'Device revoked.', type: ToastType.info);
+        }
+      } catch (e) {
+        if (mounted) {
+          ToastNotification.show(context, message: 'Failed to revoke device: $e', type: ToastType.error);
+        }
+      }
+    }
+  }
+
   // Dialog: Edit Profile Information
   void _showEditProfileDialog(UserModel user) {
     final firstNameController = TextEditingController(text: user.firstName);
@@ -372,35 +478,69 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                 label: user.role == UserRole.admin ? 'Switch to Supervisor View' : 'Switch to Admin View',
                 icon: Icons.swap_horiz_rounded,
                 variant: ButtonVariant.outline,
-                onPressed: () {
+                onPressed: () async {
                   if (user.role == UserRole.admin) {
-                    final employees = ref.read(employeesProvider).value ?? [];
-                    final supervisors = employees.where((u) => u.role == UserRole.supervisor).toList();
+                    ref.read(lastActiveAdminProvider.notifier).state = user;
+                    final repo = ref.read(dataRepositoryProvider);
+                    final allUsers = await repo.getUsers();
+                    final supervisors = allUsers.where((u) => u.role == UserRole.supervisor).toList();
                     if (supervisors.isNotEmpty) {
                       ref.read(currentUserProvider.notifier).state = supervisors.first;
-                      ToastNotification.show(context, message: 'Switched to Supervisor: ${supervisors.first.fullName}', type: ToastType.info);
+                      if (context.mounted) {
+                        ToastNotification.show(context, message: 'Switched to Supervisor: ${supervisors.first.fullName}', type: ToastType.info);
+                      }
                     } else {
-                      ToastNotification.show(context, message: 'No registered supervisor found in database.', type: ToastType.warning);
+                      if (context.mounted) {
+                        ToastNotification.show(context, message: 'No registered supervisor found in database.', type: ToastType.warning);
+                      }
                     }
                   } else {
-                    final employees = ref.read(employeesProvider).value ?? [];
-                    final admins = employees.where((u) => u.role == UserRole.admin).toList();
-                    if (admins.isNotEmpty) {
-                      ref.read(currentUserProvider.notifier).state = admins.first;
-                      ToastNotification.show(context, message: 'Switched to Administrator view (${admins.first.fullName})', type: ToastType.info);
+                    final cachedAdmin = ref.read(lastActiveAdminProvider);
+                    if (cachedAdmin != null) {
+                      ref.read(currentUserProvider.notifier).state = cachedAdmin;
+                      if (context.mounted) {
+                        ToastNotification.show(context, message: 'Switched to Administrator view (${cachedAdmin.fullName})', type: ToastType.info);
+                      }
                     } else {
+                      final repo = ref.read(dataRepositoryProvider);
+                      final allUsers = await repo.getUsers();
+                      final markAdmin = allUsers.where((u) => u.username.toLowerCase() == AuthConfig.demoEmail.toLowerCase()).toList();
+                      if (markAdmin.isNotEmpty) {
+                        ref.read(currentUserProvider.notifier).state = markAdmin.first;
+                        ref.read(lastActiveAdminProvider.notifier).state = markAdmin.first;
+                        if (context.mounted) {
+                          ToastNotification.show(context, message: 'Switched to Administrator view (${markAdmin.first.fullName})', type: ToastType.info);
+                        }
+                        return;
+                      }
+
+                      final admins = allUsers.where((u) => u.role == UserRole.admin).toList();
+                      if (admins.isNotEmpty) {
+                        ref.read(currentUserProvider.notifier).state = admins.first;
+                        ref.read(lastActiveAdminProvider.notifier).state = admins.first;
+                        if (context.mounted) {
+                          ToastNotification.show(context, message: 'Switched to Administrator view (${admins.first.fullName})', type: ToastType.info);
+                        }
+                        return;
+                      }
+
                       final supaUser = Supabase.instance.client.auth.currentUser;
-                      ref.read(currentUserProvider.notifier).state = UserModel(
-                        userId: supaUser?.id ?? '',
-                        username: supaUser?.email ?? 'admin',
-                        firstName: supaUser?.userMetadata?['first_name']?.toString() ?? 'Administrator',
-                        lastName: supaUser?.userMetadata?['last_name']?.toString() ?? '',
-                        contactNumber: supaUser?.phone ?? '',
+                      final isDemo = supaUser == null || AuthConfig.isDemoAccount(supaUser.email ?? '');
+                      final fallbackAdmin = UserModel(
+                        userId: supaUser?.id ?? '11111111-1111-1111-1111-111111111111',
+                        username: supaUser?.email ?? AuthConfig.demoEmail,
+                        firstName: supaUser?.userMetadata?['first_name']?.toString() ?? (isDemo ? 'Mark Kevin' : 'Administrator'),
+                        lastName: supaUser?.userMetadata?['last_name']?.toString() ?? (isDemo ? 'Canonoy' : ''),
+                        contactNumber: supaUser?.phone ?? (isDemo ? '+63 917 555 0199' : ''),
                         role: UserRole.admin,
                         status: 'active',
                         schedule: 'Unassigned',
                       );
-                      ToastNotification.show(context, message: 'Switched to Administrator view', type: ToastType.info);
+                      ref.read(currentUserProvider.notifier).state = fallbackAdmin;
+                      ref.read(lastActiveAdminProvider.notifier).state = fallbackAdmin;
+                      if (context.mounted) {
+                        ToastNotification.show(context, message: 'Switched to Administrator view (${fallbackAdmin.fullName})', type: ToastType.info);
+                      }
                     }
                   }
                 },
@@ -415,13 +555,12 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                CircleAvatar(
+                UserAvatar(
+                  photoUrl: user.photoUrl,
+                  initials: user.initials,
                   radius: 40,
+                  fontSize: 26,
                   backgroundColor: AppColors.primaryNavy,
-                  child: Text(
-                    user.initials,
-                    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
                 ),
                 const SizedBox(width: 24),
                 Expanded(
@@ -684,7 +823,7 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                             Expanded(
                               child: _buildDetailRow(
                                 'Multi-Factor Authentication (MFA)',
-                                'Active (Email One-Time Password on Web Login)',
+                                'Active (Biometrics Preferred, Email OTP Fallback)',
                               ),
                             ),
                             const SizedBox(width: 24),
@@ -702,6 +841,162 @@ class _ProfileViewState extends ConsumerState<ProfileView> {
                               ),
                             ),
                           ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Card 4: Biometric Passkeys & Enrolled Multi-Factor Devices
+                  AppCard(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.fingerprint_rounded, color: AppColors.accentEmerald, size: 22),
+                                SizedBox(width: 10),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Biometric Passkeys & Enrolled Devices',
+                                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      'FIDO2 / WebAuthn platform authenticators for 1-click Quick Login (Windows Hello, Touch ID)',
+                                      style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            AppButton(
+                              label: '+ Register This Device',
+                              icon: Icons.fingerprint,
+                              variant: ButtonVariant.outline,
+                              isLoading: _isRegisteringDevice,
+                              onPressed: () => _registerNewDevice(user),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        ref.watch(userPasskeysProvider(user.userId)).when(
+                          data: (passkeys) {
+                            if (passkeys.isEmpty) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(Icons.fingerprint_outlined, size: 36, color: AppColors.textLight),
+                                    SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'No biometric devices enrolled yet',
+                                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                          ),
+                                          SizedBox(height: 2),
+                                          Text(
+                                            'Click "+ Register This Device" above to enroll this computer\'s fingerprint or Touch ID scanner for instant passwordless login.',
+                                            style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            return ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: passkeys.length,
+                              separatorBuilder: (context, index) => const SizedBox(height: 8),
+                              itemBuilder: (ctx, idx) {
+                                final p = passkeys[idx];
+                                final registeredDate = DateFormat('MMM dd, yyyy').format(p.createdAt);
+                                final lastUsedText = p.lastUsedAt != null
+                                    ? DateFormat('MMM dd, yyyy • hh:mm a').format(p.lastUsedAt!)
+                                    : 'Never used';
+
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: AppColors.border),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.accentEmerald.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(Icons.fingerprint_rounded, size: 22, color: AppColors.accentEmerald),
+                                      ),
+                                      const SizedBox(width: 14),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Text(
+                                                  p.deviceName,
+                                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                const StatusBadge(
+                                                  label: 'Enrolled MFA',
+                                                  type: BadgeType.optimal,
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              'Enrolled on $registeredDate • Last used: $lastUsedText',
+                                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.brightRed),
+                                        tooltip: 'Revoke this device',
+                                        onPressed: () => _deleteDevice(p, user),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                          loading: () => const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(16),
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                          error: (err, _) => Text(
+                            'Error loading passkeys: $err',
+                            style: const TextStyle(fontSize: 12, color: AppColors.brightRed),
+                          ),
                         ),
                       ],
                     ),

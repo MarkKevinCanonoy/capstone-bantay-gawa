@@ -289,12 +289,22 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     final rawAccomplishments = ref.read(accomplishmentsProvider).value ?? [];
 
     final availableAreas = currentUser.role == UserRole.supervisor
-        ? rawWorkAreas.where((a) => a.supervisorId == currentUser.userId).toList()
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            a.workareaId == currentUser.assignedAreaId ||
+            a.name == currentUser.assignedAreaName).toList()
         : rawWorkAreas;
 
     final availableWorkers = currentUser.role == UserRole.supervisor
         ? rawEmployees
-            .where((u) => u.role == UserRole.worker && availableAreas.any((a) => a.workareaId == u.assignedAreaId))
+            .where((u) =>
+                u.role == UserRole.worker &&
+                availableAreas.any((a) =>
+                    a.workareaId == u.assignedAreaId ||
+                    (u.assignedAreaName != null &&
+                        a.name.toLowerCase() == u.assignedAreaName!.toLowerCase())))
             .toList()
         : rawEmployees.where((u) => u.role == UserRole.worker).toList();
 
@@ -303,7 +313,13 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     final rangeEndDay = DateTime(effectiveRange.end.year, effectiveRange.end.month, effectiveRange.end.day, 23, 59, 59);
 
     final filteredAttendance = rawAttendance.where((log) {
-      final matchesArea = _selectedArea == 'all' || log.workareaId == _selectedArea;
+      final matchesArea = _selectedArea == 'all'
+          ? (currentUser.role == UserRole.supervisor
+              ? availableAreas.any((a) =>
+                  a.workareaId == log.workareaId ||
+                  a.name.toLowerCase() == log.areaName.toLowerCase())
+              : true)
+          : (log.workareaId == _selectedArea || log.areaName.toLowerCase() == _selectedArea.toLowerCase());
       final matchesWorker = _selectedWorker == 'all' || log.userId == _selectedWorker;
       final matchesDate = (log.timestamp.isAfter(effectiveRange.start) || log.timestamp.isAtSameMomentAs(effectiveRange.start)) &&
                           (log.timestamp.isBefore(effectiveRange.end) || log.timestamp.isAtSameMomentAs(effectiveRange.end));
@@ -311,17 +327,32 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     }).toList();
 
     final filteredAreas = availableAreas.where((a) {
-      return _selectedArea == 'all' || a.workareaId == _selectedArea;
+      return _selectedArea == 'all' || a.workareaId == _selectedArea || a.name.toLowerCase() == _selectedArea.toLowerCase();
     }).toList();
 
     final filteredWorkers = availableWorkers.where((w) {
-      final matchesArea = _selectedArea == 'all' || w.assignedAreaId == _selectedArea;
+      final matchesArea = _selectedArea == 'all'
+          ? (currentUser.role == UserRole.supervisor
+              ? availableAreas.any((a) =>
+                  a.workareaId == w.assignedAreaId ||
+                  (w.assignedAreaName != null &&
+                      a.name.toLowerCase() == w.assignedAreaName!.toLowerCase()))
+              : true)
+          : (w.assignedAreaId == _selectedArea ||
+              (w.assignedAreaName != null &&
+                  w.assignedAreaName!.toLowerCase() == _selectedArea.toLowerCase()));
       final matchesWorker = _selectedWorker == 'all' || w.userId == _selectedWorker;
       return matchesArea && matchesWorker;
     }).toList();
 
     final filteredAccomplishments = rawAccomplishments.where((acc) {
-      final matchesArea = _selectedArea == 'all' || acc.workareaId == _selectedArea;
+      final matchesArea = _selectedArea == 'all'
+          ? (currentUser.role == UserRole.supervisor
+              ? availableAreas.any((a) =>
+                  a.workareaId == acc.workareaId ||
+                  a.name.toLowerCase() == acc.areaName.toLowerCase())
+              : true)
+          : (acc.workareaId == _selectedArea || acc.areaName.toLowerCase() == _selectedArea.toLowerCase());
       final matchesWorker = _selectedWorker == 'all' || acc.userId == _selectedWorker;
       final accDate = DateTime.tryParse(acc.capturedDate);
       bool matchesDate = true;
@@ -756,12 +787,26 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
     final rawWorkAreas = workAreasAsync.value ?? [];
     final rawEmployees = employeesAsync.value ?? [];
 
-    // Filter work areas based on supervisor role (UC-05 Alt Flow 1)
+    // Filter work areas based on supervisor role (UC-05, UC-12)
     final availableAreas = currentUser.role == UserRole.supervisor
-        ? rawWorkAreas.where((a) => a.supervisorId == currentUser.userId).toList()
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            a.workareaId == currentUser.assignedAreaId ||
+            a.name == currentUser.assignedAreaName).toList()
         : rawWorkAreas;
 
-    final availableWorkers = rawEmployees.where((u) => u.role == UserRole.worker).toList();
+    final availableWorkers = currentUser.role == UserRole.supervisor
+        ? rawEmployees
+            .where((u) =>
+                u.role == UserRole.worker &&
+                availableAreas.any((a) =>
+                    a.workareaId == u.assignedAreaId ||
+                    (u.assignedAreaName != null &&
+                        a.name.toLowerCase() == u.assignedAreaName!.toLowerCase())))
+            .toList()
+        : rawEmployees.where((u) => u.role == UserRole.worker).toList();
 
     // Retrieve active filtered data across Area, Worker, and Date Range
     final filtered = _getFilteredData();
@@ -1081,7 +1126,10 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                         isExpanded: true,
                         initialValue: _selectedArea,
                         items: [
-                          const DropdownMenuItem(value: 'all', child: Text('All Monitored Sectors')),
+                          DropdownMenuItem(
+                            value: 'all',
+                            child: Text(currentUser.role == UserRole.supervisor ? 'All Assigned Sectors' : 'All Monitored Sectors'),
+                          ),
                           ...availableAreas.map((area) => DropdownMenuItem(
                                 value: area.workareaId,
                                 child: Text(area.name, overflow: TextOverflow.ellipsis),
@@ -1107,7 +1155,10 @@ class _ReportsViewState extends ConsumerState<ReportsView> {
                         isExpanded: true,
                         initialValue: _selectedWorker,
                         items: [
-                          const DropdownMenuItem(value: 'all', child: Text('All Field Workers')),
+                          DropdownMenuItem(
+                            value: 'all',
+                            child: Text(currentUser.role == UserRole.supervisor ? 'All Assigned Workers' : 'All Field Workers'),
+                          ),
                           ...availableWorkers.map((w) => DropdownMenuItem(
                                 value: w.userId,
                                 child: Text(w.fullName, overflow: TextOverflow.ellipsis),

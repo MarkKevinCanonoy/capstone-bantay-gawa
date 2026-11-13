@@ -5,6 +5,7 @@ import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/toast_notification.dart';
 import '../../../core/widgets/confirmation_dialog.dart';
+import '../../../core/widgets/user_avatar.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/models/work_area_model.dart';
 import '../../../data/repositories/repository_provider.dart';
@@ -56,6 +57,10 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
   @override
   void initState() {
     super.initState();
+    final currentUser = ref.read(currentUserProvider);
+    if (currentUser.role == UserRole.supervisor) {
+      _sortOption = WorkerSortOption.nameAsc;
+    }
     _loadWorkers();
   }
 
@@ -481,10 +486,18 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
   }
 
   List<UserModel> _getFilteredAndSortedWorkers() {
+    final currentUser = ref.read(currentUserProvider);
+    final isSupervisor = currentUser.role == UserRole.supervisor;
     final query = _searchController.text.trim().toLowerCase();
 
-    // 1. Search Filtering by First Name, Last Name, or Full Name
+    // 1. Search Filtering by First Name, Last Name, or Full Name + Supervisor Scoping
     var list = _workers.where((w) {
+      if (isSupervisor) {
+        final matchesArea = w.assignedAreaId == widget.area.workareaId ||
+            (w.assignedAreaName != null &&
+                w.assignedAreaName!.toLowerCase() == widget.area.name.toLowerCase());
+        if (!matchesArea) return false;
+      }
       if (query.isEmpty) return true;
       final firstMatch = w.firstName.toLowerCase().contains(query);
       final lastMatch = w.lastName.toLowerCase().contains(query);
@@ -605,6 +618,78 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 4),
+                      Text(
+                        isAdmin
+                            ? 'Manage sector assignments and operational shift schedules.'
+                            : 'Assigned personnel roster for supervisory oversight.',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              'Supervisor: ${widget.area.supervisorName.isNotEmpty && widget.area.supervisorName != "No supervisor" && widget.area.supervisorName != "Unassigned" ? widget.area.supervisorName : "Unassigned"}',
+                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isAdmin &&
+                              widget.area.supervisorId != null &&
+                              widget.area.supervisorId!.isNotEmpty &&
+                              widget.area.supervisorName != 'No supervisor' &&
+                              widget.area.supervisorName != 'Unassigned') ...[
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () {
+                                ConfirmationDialog.show(
+                                  context,
+                                  title: 'Unassign Supervisor',
+                                  message: 'Are you sure you want to unassign ${widget.area.supervisorName} from ${widget.area.name}?',
+                                  confirmLabel: 'Unassign',
+                                  confirmVariant: ButtonVariant.danger,
+                                  onConfirm: () async {
+                                    final updated = widget.area.copyWith(
+                                      clearSupervisor: true,
+                                      supervisorId: null,
+                                      supervisorName: 'No supervisor',
+                                    );
+                                    await ref.read(dataRepositoryProvider).updateWorkArea(updated);
+                                    ref.invalidate(workAreasProvider);
+                                    ref.invalidate(supervisorsProvider);
+                                    ref.invalidate(employeesProvider);
+                                    ref.invalidate(attendanceProvider);
+                                    ref.invalidate(accomplishmentsProvider);
+                                    ref.invalidate(leaveRequestsProvider);
+                                    final curUser = ref.read(currentUserProvider);
+                                    if (curUser.userId == widget.area.supervisorId) {
+                                      ref.read(currentUserProvider.notifier).state = curUser.copyWith(
+                                        clearAssignedArea: true,
+                                        assignedAreaId: null,
+                                        assignedAreaName: 'Unassigned',
+                                      );
+                                    }
+                                    widget.onAssignmentsChanged?.call();
+                                    if (context.mounted) {
+                                      Navigator.of(context).pop();
+                                      ToastNotification.show(
+                                        context,
+                                        message: 'Supervisor unassigned from "${widget.area.name}".',
+                                        type: ToastType.info,
+                                      );
+                                    }
+                                  },
+                                );
+                              },
+                              child: const Text(
+                                'Unassign',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.brightRed),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -667,30 +752,39 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                   onSelected: (val) {
                     setState(() => _sortOption = val);
                   },
-                  itemBuilder: (context) => WorkerSortOption.values.map((option) {
-                    final isSelected = option == _sortOption;
-                    return PopupMenuItem<WorkerSortOption>(
-                      value: option,
-                      child: Row(
-                        children: [
-                          Icon(
-                            isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
-                            size: 16,
-                            color: isSelected ? AppColors.accentBlue : AppColors.textMuted,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _getSortLabel(option),
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
-                              color: isSelected ? AppColors.accentBlue : AppColors.textPrimary,
+                  itemBuilder: (context) {
+                    final availableOptions = isAdmin
+                        ? WorkerSortOption.values
+                        : [
+                            WorkerSortOption.nameAsc,
+                            WorkerSortOption.nameDesc,
+                            WorkerSortOption.creditScore,
+                          ];
+                    return availableOptions.map((option) {
+                      final isSelected = option == _sortOption;
+                      return PopupMenuItem<WorkerSortOption>(
+                        value: option,
+                        child: Row(
+                          children: [
+                            Icon(
+                              isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                              size: 16,
+                              color: isSelected ? AppColors.accentBlue : AppColors.textMuted,
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
+                            const SizedBox(width: 8),
+                            Text(
+                              _getSortLabel(option),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+                                color: isSelected ? AppColors.accentBlue : AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList();
+                  },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
@@ -789,18 +883,16 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                               ),
                               child: Row(
                                 children: [
-                                  // Avatar Initials
-                                  CircleAvatar(
+                                  // Avatar
+                                  UserAvatar(
+                                    photoUrl: worker.photoUrl,
+                                    initials: worker.initials,
                                     radius: 18,
                                     backgroundColor: isAssignedHere
                                         ? AppColors.accentEmerald
                                         : isUnassigned
                                             ? AppColors.accentBlue
                                             : AppColors.neutralText,
-                                    child: Text(
-                                      worker.initials,
-                                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                                    ),
                                   ),
                                   const SizedBox(width: 12),
 

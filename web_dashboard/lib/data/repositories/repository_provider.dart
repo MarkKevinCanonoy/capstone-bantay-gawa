@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/constants/auth_config.dart';
 import 'data_repository.dart';
 import 'mock_repository.dart';
 import 'supabase_repository.dart';
 import '../models/user_model.dart';
+import '../models/passkey_model.dart';
 import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
@@ -34,12 +36,21 @@ class CurrentUserNotifier extends Notifier<UserModel> {
     try {
       final supaUser = Supabase.instance.client.auth.currentUser;
       if (supaUser != null) {
+        final email = supaUser.email ?? '';
+        final firstName = supaUser.userMetadata?['first_name']?.toString();
+        final lastName = supaUser.userMetadata?['last_name']?.toString() ?? '';
+        final isDemo = AuthConfig.isDemoAccount(email);
+
         return UserModel(
           userId: supaUser.id,
-          username: supaUser.email ?? 'admin',
-          firstName: supaUser.userMetadata?['first_name']?.toString() ?? 'Administrator',
-          lastName: supaUser.userMetadata?['last_name']?.toString() ?? '',
-          contactNumber: supaUser.phone ?? '',
+          username: email.isNotEmpty ? email : AuthConfig.demoEmail,
+          firstName: (firstName != null && firstName.isNotEmpty)
+              ? firstName
+              : (isDemo || email.toLowerCase() == AuthConfig.demoEmail.toLowerCase() ? 'Mark Kevin' : 'Administrator'),
+          lastName: (lastName.isNotEmpty)
+              ? lastName
+              : (isDemo || email.toLowerCase() == AuthConfig.demoEmail.toLowerCase() ? 'Canonoy' : ''),
+          contactNumber: supaUser.phone ?? (isDemo ? '+63 917 555 0199' : ''),
           role: UserRole.admin,
           status: 'active',
           schedule: 'Unassigned',
@@ -48,11 +59,11 @@ class CurrentUserNotifier extends Notifier<UserModel> {
     } catch (_) {}
 
     return UserModel(
-      userId: '',
-      username: '',
-      firstName: 'Administrator',
-      lastName: '',
-      contactNumber: '',
+      userId: '11111111-1111-1111-1111-111111111111',
+      username: AuthConfig.demoEmail,
+      firstName: 'Mark Kevin',
+      lastName: 'Canonoy',
+      contactNumber: '+63 917 555 0199',
       role: UserRole.admin,
       status: 'active',
       schedule: 'Unassigned',
@@ -64,6 +75,26 @@ class CurrentUserNotifier extends Notifier<UserModel> {
 }
 
 final currentUserProvider = NotifierProvider<CurrentUserNotifier, UserModel>(CurrentUserNotifier.new);
+
+// Cached Last Active Administrator for seamless role-switching during test/preview
+class LastActiveAdminNotifier extends Notifier<UserModel?> {
+  @override
+  UserModel? build() => UserModel(
+        userId: '11111111-1111-1111-1111-111111111111',
+        username: AuthConfig.demoEmail,
+        firstName: 'Mark Kevin',
+        lastName: 'Canonoy',
+        contactNumber: '+63 917 555 0199',
+        role: UserRole.admin,
+        status: 'active',
+        schedule: 'Unassigned',
+      );
+
+  @override
+  set state(UserModel? value) => super.state = value;
+}
+
+final lastActiveAdminProvider = NotifierProvider<LastActiveAdminNotifier, UserModel?>(LastActiveAdminNotifier.new);
 
 // Active Navigation Tab (Riverpod 3 NotifierProvider)
 class ActiveNavNotifier extends Notifier<String> {
@@ -214,7 +245,23 @@ final supervisorsProvider = FutureProvider.autoDispose<List<UserModel>>((ref) as
 final attendanceProvider = FutureProvider.autoDispose<List<AttendanceModel>>((ref) async {
   final repo = ref.watch(dataRepositoryProvider);
   final user = ref.watch(currentUserProvider);
-  final areaId = user.role == UserRole.supervisor ? user.assignedAreaId : null;
+
+  String? areaId;
+  if (user.role == UserRole.supervisor) {
+    areaId = user.assignedAreaId;
+    if (areaId == null || areaId.isEmpty) {
+      final areas = await repo.getWorkAreas(supervisorId: user.userId);
+      final match = areas.where((a) =>
+          a.supervisorId == user.userId ||
+          (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == user.fullName.toLowerCase())
+      ).firstOrNull;
+      areaId = match?.workareaId;
+    }
+    // If supervisor has no assigned sector, return empty list immediately
+    if (areaId == null || areaId.isEmpty) {
+      return [];
+    }
+  }
 
   if (repo is SupabaseRepository) {
     try {
@@ -269,7 +316,22 @@ final scheduleSheetsProvider = FutureProvider.autoDispose.family<List<ScheduleSh
 final accomplishmentsProvider = FutureProvider.autoDispose<List<AccomplishmentModel>>((ref) async {
   final repo = ref.watch(dataRepositoryProvider);
   final user = ref.watch(currentUserProvider);
-  final areaId = user.role == UserRole.supervisor ? user.assignedAreaId : null;
+
+  String? areaId;
+  if (user.role == UserRole.supervisor) {
+    areaId = user.assignedAreaId;
+    if (areaId == null || areaId.isEmpty) {
+      final areas = await repo.getWorkAreas(supervisorId: user.userId);
+      final match = areas.where((a) =>
+          a.supervisorId == user.userId ||
+          (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == user.fullName.toLowerCase())
+      ).firstOrNull;
+      areaId = match?.workareaId;
+    }
+    if (areaId == null || areaId.isEmpty) {
+      return [];
+    }
+  }
 
   if (repo is SupabaseRepository) {
     try {
@@ -302,7 +364,22 @@ final accomplishmentsProvider = FutureProvider.autoDispose<List<AccomplishmentMo
 final leaveRequestsProvider = FutureProvider.autoDispose<List<LeaveRequestModel>>((ref) async {
   final repo = ref.watch(dataRepositoryProvider);
   final user = ref.watch(currentUserProvider);
-  final areaId = user.role == UserRole.supervisor ? user.assignedAreaId : null;
+
+  String? areaId;
+  if (user.role == UserRole.supervisor) {
+    areaId = user.assignedAreaId;
+    if (areaId == null || areaId.isEmpty) {
+      final areas = await repo.getWorkAreas(supervisorId: user.userId);
+      final match = areas.where((a) =>
+          a.supervisorId == user.userId ||
+          (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == user.fullName.toLowerCase())
+      ).firstOrNull;
+      areaId = match?.workareaId;
+    }
+    if (areaId == null || areaId.isEmpty) {
+      return [];
+    }
+  }
 
   if (repo is SupabaseRepository) {
     try {
@@ -431,4 +508,10 @@ final incidentsProvider = FutureProvider.autoDispose<List<IncidentReportModel>>(
   }
   return repo.getIncidents();
 });
+
+final userPasskeysProvider = FutureProvider.autoDispose.family<List<PasskeyModel>, String>((ref, userId) async {
+  final repo = ref.watch(dataRepositoryProvider);
+  return repo.getUserPasskeys(userId);
+});
+
 

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/utils/uuid_helper.dart';
 import '../models/user_model.dart';
+import '../models/passkey_model.dart';
 import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
@@ -69,7 +70,7 @@ class SupabaseRepository implements DataRepository {
       // Fallback: encode status in description
       if (area.status == 'Inactive') {
         final curDesc = payload['description']?.toString() ?? '';
-        payload['description'] = (curDesc.isEmpty ? '' : '$curDesc ') + '[STATUS:Inactive]';
+        payload['description'] = curDesc.isEmpty ? '[STATUS:Inactive]' : '$curDesc [STATUS:Inactive]';
       }
       await _client.from('work_areas').insert(payload);
     } catch (e) {
@@ -81,26 +82,105 @@ class SupabaseRepository implements DataRepository {
   @override
   Future<void> updateWorkArea(WorkAreaModel area) async {
     try {
+      // 1. Detect previous supervisor for dynamic assignment synchronization
+      String? oldSupervisorId;
+      try {
+        final existing = await _client
+            .from('work_areas')
+            .select('supervisor_id')
+            .eq('workarea_id', area.workareaId)
+            .maybeSingle();
+        oldSupervisorId = existing?['supervisor_id']?.toString();
+      } catch (e) {
+        debugPrint('SupabaseRepository check previous supervisor note: $e');
+      }
+
       final payload = area.toSupabaseJson();
 
       // Try updating with status column
+      var statusUpdated = false;
       try {
         final payloadWithStatus = Map<String, dynamic>.from(payload);
         payloadWithStatus['status'] = area.status;
         await _client.from('work_areas').update(payloadWithStatus).eq('workarea_id', area.workareaId);
-        return;
+        statusUpdated = true;
       } catch (statusErr) {
         debugPrint('Supabase work_areas status column not available on update: $statusErr');
       }
 
-      // Fallback: encode status in description
-      var curDesc = payload['description']?.toString() ?? '';
-      curDesc = curDesc.replaceAll(RegExp(r'\[STATUS:(Active|Inactive)\]'), '').trim();
-      if (area.status == 'Inactive') {
-        curDesc = (curDesc.isEmpty ? '' : '$curDesc ') + '[STATUS:Inactive]';
+      if (!statusUpdated) {
+        // Fallback: encode status in description
+        var curDesc = payload['description']?.toString() ?? '';
+        curDesc = curDesc.replaceAll(RegExp(r'\[STATUS:(Active|Inactive)\]'), '').trim();
+        if (area.status == 'Inactive') {
+          curDesc = curDesc.isEmpty ? '[STATUS:Inactive]' : '$curDesc [STATUS:Inactive]';
+        }
+        payload['description'] = curDesc.isEmpty ? null : curDesc;
+        await _client.from('work_areas').update(payload).eq('workarea_id', area.workareaId);
       }
-      payload['description'] = curDesc.isEmpty ? null : curDesc;
-      await _client.from('work_areas').update(payload).eq('workarea_id', area.workareaId);
+
+      // 2. Synchronize work_area_assignments for supervisor role
+      final isClearing = area.supervisorId == null ||
+          area.supervisorId!.isEmpty ||
+          area.supervisorName == 'No supervisor' ||
+          area.supervisorName == 'Unassigned';
+
+      if (isClearing) {
+        if (oldSupervisorId != null && oldSupervisorId.isNotEmpty) {
+          try {
+            await _client
+                .from('work_area_assignments')
+                .update({'is_active': false})
+                .eq('user_id', oldSupervisorId)
+                .eq('workarea_id', area.workareaId);
+          } catch (assignErr) {
+            debugPrint('Deactivate old supervisor assignment note: $assignErr');
+          }
+        }
+        if (area.supervisorId != null && area.supervisorId!.isNotEmpty) {
+          try {
+            await _client
+                .from('work_area_assignments')
+                .update({'is_active': false})
+                .eq('user_id', area.supervisorId!)
+                .eq('workarea_id', area.workareaId);
+          } catch (assignErr) {
+            debugPrint('Deactivate cleared supervisor assignment note: $assignErr');
+          }
+        }
+      } else {
+        if (oldSupervisorId != null &&
+            oldSupervisorId.isNotEmpty &&
+            oldSupervisorId != area.supervisorId) {
+          try {
+            await _client
+                .from('work_area_assignments')
+                .update({'is_active': false})
+                .eq('user_id', oldSupervisorId)
+                .eq('workarea_id', area.workareaId);
+          } catch (assignErr) {
+            debugPrint('Deactivate old supervisor assignment note: $assignErr');
+          }
+        }
+
+        if (area.supervisorId != null && area.supervisorId!.isNotEmpty) {
+          try {
+            await _client
+                .from('work_area_assignments')
+                .update({'is_active': false})
+                .eq('user_id', area.supervisorId!);
+
+            await _client.from('work_area_assignments').insert({
+              'assignment_id': UuidHelper.generate(),
+              'user_id': area.supervisorId,
+              'workarea_id': area.workareaId,
+              'is_active': true,
+            });
+          } catch (assignErr) {
+            debugPrint('Activate new supervisor assignment note: $assignErr');
+          }
+        }
+      }
     } catch (e) {
       debugPrint('SupabaseRepository updateWorkArea error: $e');
       rethrow;
@@ -110,6 +190,24 @@ class SupabaseRepository implements DataRepository {
   @override
   Future<void> deleteWorkArea(String areaId) async {
     try {
+      try {
+        final existing = await _client
+            .from('work_areas')
+            .select('supervisor_id')
+            .eq('workarea_id', areaId)
+            .maybeSingle();
+        final supId = existing?['supervisor_id']?.toString();
+        if (supId != null && supId.isNotEmpty) {
+          await _client
+              .from('work_area_assignments')
+              .update({'is_active': false})
+              .eq('user_id', supId)
+              .eq('workarea_id', areaId);
+        }
+      } catch (e) {
+        debugPrint('SupabaseRepository deleteWorkArea supervisor cleanup note: $e');
+      }
+
       await _client.from('work_areas').delete().eq('workarea_id', areaId);
     } catch (e) {
       debugPrint('SupabaseRepository deleteWorkArea error: $e');
@@ -195,6 +293,9 @@ class SupabaseRepository implements DataRepository {
 
       if (user.faceEmbedding != null && user.faceEmbedding!.isNotEmpty) {
         insertData['face_embedding'] = user.faceEmbedding;
+      }
+      if (user.photoUrl != null && user.photoUrl!.isNotEmpty) {
+        insertData['photo_url'] = user.photoUrl;
       }
 
       await _client.from('users').insert(insertData);
@@ -333,6 +434,90 @@ class SupabaseRepository implements DataRepository {
     } catch (e) {
       debugPrint('SupabaseRepository updateWorkerSchedule error: $e');
       rethrow;
+    }
+  }
+
+  // ==========================================
+  // WebAuthn Passkeys / Biometric Credentials
+  // ==========================================
+  @override
+  Future<List<PasskeyModel>> getUserPasskeys(String userId) async {
+    try {
+      final res = await _client
+          .from('user_passkeys')
+          .select()
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
+      return (res as List).map((m) => PasskeyModel.fromJson(m as Map<String, dynamic>)).toList();
+    } catch (e) {
+      debugPrint('SupabaseRepository getUserPasskeys error: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<List<PasskeyModel>> getAllPasskeys() async {
+    try {
+      final res = await _client
+          .from('user_passkeys')
+          .select()
+          .order('created_at', ascending: false);
+      return (res as List).map((m) => PasskeyModel.fromJson(m as Map<String, dynamic>)).toList();
+    } catch (e) {
+      debugPrint('SupabaseRepository getAllPasskeys error: $e');
+      return [];
+    }
+  }
+
+  @override
+  Future<void> addPasskey(PasskeyModel passkey) async {
+    try {
+      await _client.from('user_passkeys').insert({
+        'user_id': passkey.userId,
+        'credential_id': passkey.credentialId,
+        'public_key': passkey.publicKey,
+        'device_name': passkey.deviceName,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {
+      debugPrint('SupabaseRepository addPasskey error: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> deletePasskey(String passkeyId) async {
+    try {
+      await _client.from('user_passkeys').delete().eq('passkey_id', passkeyId);
+    } catch (e) {
+      debugPrint('SupabaseRepository deletePasskey error: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<UserModel?> findUserByPasskeyCredential(String credentialId) async {
+    try {
+      final res = await _client
+          .from('user_passkeys')
+          .select('*, users(*)')
+          .eq('credential_id', credentialId)
+          .maybeSingle();
+
+      if (res == null) return null;
+
+      // Update last_used_at
+      await _client
+          .from('user_passkeys')
+          .update({'last_used_at': DateTime.now().toIso8601String()})
+          .eq('credential_id', credentialId);
+
+      final users = await getUsers();
+      final userId = res['user_id']?.toString();
+      return users.where((u) => u.userId == userId).firstOrNull;
+    } catch (e) {
+      debugPrint('SupabaseRepository findUserByPasskeyCredential error: $e');
+      return null;
     }
   }
 
@@ -816,19 +1001,40 @@ class SupabaseRepository implements DataRepository {
       }
       return list;
     } catch (e) {
-      debugPrint('SupabaseRepository getAlerts error: $e');
-      return [];
+      debugPrint('SupabaseRepository getAlerts complex join note: $e');
+      try {
+        // Fallback: Query alerts directly without complex relation join
+        final flatRes = await _client.from('alerts').select('*').order('created_at', ascending: false);
+        var list = (flatRes as List).map((m) => AlertModel.fromJson(m as Map<String, dynamic>)).toList();
+        if (category != null && category != 'all') {
+          list = list.where((a) => a.srsCategory == category).toList();
+        }
+        return list;
+      } catch (e2) {
+        debugPrint('SupabaseRepository getAlerts flat fallback error: $e2');
+        return [];
+      }
     }
   }
 
   @override
-  Future<void> resolveAlert(String alertId) async {
+  Future<void> resolveAlert(
+    String alertId, {
+    String? resolvedBy,
+    String? responseAction,
+    String? responseNote,
+  }) async {
     try {
-      await _client.from('alerts').update({
+      final updateData = <String, dynamic>{
         'resolved_at': DateTime.now().toIso8601String(),
-      }).eq('alert_id', alertId);
+      };
+      if (resolvedBy != null && resolvedBy.isNotEmpty && UuidHelper.isValid(resolvedBy)) {
+        updateData['resolved_by'] = resolvedBy;
+      }
+      await _client.from('alerts').update(updateData).eq('alert_id', alertId);
     } catch (e) {
       debugPrint('SupabaseRepository resolveAlert error: $e');
+      rethrow;
     }
   }
 

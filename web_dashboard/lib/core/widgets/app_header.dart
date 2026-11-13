@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../constants/auth_config.dart';
 import '../theme/app_colors.dart';
 import 'toast_notification.dart';
 import 'app_button.dart';
 import 'confirmation_dialog.dart';
+import 'user_avatar.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
 
@@ -42,7 +44,7 @@ class _AppHeaderState extends ConsumerState<AppHeader> {
       case 'reports':
         return ('Communications & Audit', 'Analytics & Export Reports');
       case 'profile':
-        return ('Account', 'Administrator Profile');
+        return ('Account', 'User Profile');
       default:
         return ('Operations', 'Dashboard Overview');
     }
@@ -53,10 +55,32 @@ class _AppHeaderState extends ConsumerState<AppHeader> {
     final currentUser = ref.watch(currentUserProvider);
     final currentNav = ref.watch(activeNavProvider);
     final alertsAsync = ref.watch(alertsProvider);
+    final workAreasAsync = ref.watch(workAreasProvider);
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 900;
 
-    final criticalAlerts = alertsAsync.value?.where((a) => a.severity == 'critical' && !a.isResolved).toList() ?? [];
+    final isSupervisor = currentUser.role == UserRole.supervisor;
+    final rawAreas = workAreasAsync.value ?? [];
+    final supervisorAreas = isSupervisor
+        ? rawAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            a.workareaId == currentUser.assignedAreaId ||
+            a.name == currentUser.assignedAreaName).toList()
+        : rawAreas;
+
+    final criticalAlerts = alertsAsync.value?.where((a) {
+      if (a.severity != 'critical' || a.isResolved) return false;
+      if (!isSupervisor) return true;
+      return a.supervisorId == currentUser.userId ||
+          (a.supervisorName != null &&
+              a.supervisorName!.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+          supervisorAreas.any((area) =>
+              (a.workareaId != null && a.workareaId == area.workareaId) ||
+              (a.workareaName != null &&
+                  area.name.toLowerCase() == a.workareaName!.toLowerCase()));
+    }).toList() ?? [];
     final (sectionCategory, sectionTitle) = _getSectionBreadcrumbs(currentNav);
 
     return Container(
@@ -255,38 +279,72 @@ class _AppHeaderState extends ConsumerState<AppHeader> {
               borderRadius: BorderRadius.circular(12),
               side: const BorderSide(color: AppColors.border),
             ),
-            onSelected: (val) {
+            onSelected: (val) async {
               if (val == 'profile') {
                 ref.read(activeNavProvider.notifier).state = 'profile';
               } else if (val == 'switch_role') {
                 if (currentUser.role == UserRole.admin) {
-                  final employees = ref.read(employeesProvider).value ?? [];
-                  final supervisors = employees.where((u) => u.role == UserRole.supervisor).toList();
+                  ref.read(lastActiveAdminProvider.notifier).state = currentUser;
+                  final repo = ref.read(dataRepositoryProvider);
+                  final allUsers = await repo.getUsers();
+                  final supervisors = allUsers.where((u) => u.role == UserRole.supervisor).toList();
                   if (supervisors.isNotEmpty) {
                     ref.read(currentUserProvider.notifier).state = supervisors.first;
-                    ToastNotification.show(context, message: 'Switched to Supervisor: ${supervisors.first.fullName}', type: ToastType.info);
+                    if (context.mounted) {
+                      ToastNotification.show(context, message: 'Switched to Supervisor: ${supervisors.first.fullName}', type: ToastType.info);
+                    }
                   } else {
-                    ToastNotification.show(context, message: 'No registered supervisor found. Register a supervisor in Employees first.', type: ToastType.warning);
+                    if (context.mounted) {
+                      ToastNotification.show(context, message: 'No registered supervisor found. Register a supervisor in Employees first.', type: ToastType.warning);
+                    }
                   }
                 } else {
-                  final employees = ref.read(employeesProvider).value ?? [];
-                  final admins = employees.where((u) => u.role == UserRole.admin).toList();
-                  if (admins.isNotEmpty) {
-                    ref.read(currentUserProvider.notifier).state = admins.first;
-                    ToastNotification.show(context, message: 'Switched to Administrator view (${admins.first.fullName})', type: ToastType.info);
+                  final cachedAdmin = ref.read(lastActiveAdminProvider);
+                  if (cachedAdmin != null) {
+                    ref.read(currentUserProvider.notifier).state = cachedAdmin;
+                    if (context.mounted) {
+                      ToastNotification.show(context, message: 'Switched to Administrator view (${cachedAdmin.fullName})', type: ToastType.info);
+                    }
                   } else {
+                    final repo = ref.read(dataRepositoryProvider);
+                    final allUsers = await repo.getUsers();
+                    final markAdmin = allUsers.where((u) => u.username.toLowerCase() == AuthConfig.demoEmail.toLowerCase()).toList();
+                    if (markAdmin.isNotEmpty) {
+                      ref.read(currentUserProvider.notifier).state = markAdmin.first;
+                      ref.read(lastActiveAdminProvider.notifier).state = markAdmin.first;
+                      if (context.mounted) {
+                        ToastNotification.show(context, message: 'Switched to Administrator view (${markAdmin.first.fullName})', type: ToastType.info);
+                      }
+                      return;
+                    }
+
+                    final admins = allUsers.where((u) => u.role == UserRole.admin).toList();
+                    if (admins.isNotEmpty) {
+                      ref.read(currentUserProvider.notifier).state = admins.first;
+                      ref.read(lastActiveAdminProvider.notifier).state = admins.first;
+                      if (context.mounted) {
+                        ToastNotification.show(context, message: 'Switched to Administrator view (${admins.first.fullName})', type: ToastType.info);
+                      }
+                      return;
+                    }
+
                     final supaUser = Supabase.instance.client.auth.currentUser;
-                    ref.read(currentUserProvider.notifier).state = UserModel(
-                      userId: supaUser?.id ?? '',
-                      username: supaUser?.email ?? 'admin',
-                      firstName: supaUser?.userMetadata?['first_name']?.toString() ?? 'Administrator',
-                      lastName: supaUser?.userMetadata?['last_name']?.toString() ?? '',
-                      contactNumber: supaUser?.phone ?? '',
+                    final isDemo = supaUser == null || AuthConfig.isDemoAccount(supaUser.email ?? '');
+                    final fallbackAdmin = UserModel(
+                      userId: supaUser?.id ?? '11111111-1111-1111-1111-111111111111',
+                      username: supaUser?.email ?? AuthConfig.demoEmail,
+                      firstName: supaUser?.userMetadata?['first_name']?.toString() ?? (isDemo ? 'Mark Kevin' : 'Administrator'),
+                      lastName: supaUser?.userMetadata?['last_name']?.toString() ?? (isDemo ? 'Canonoy' : ''),
+                      contactNumber: supaUser?.phone ?? (isDemo ? '+63 917 555 0199' : ''),
                       role: UserRole.admin,
                       status: 'active',
                       schedule: 'Unassigned',
                     );
-                    ToastNotification.show(context, message: 'Switched to Administrator view', type: ToastType.info);
+                    ref.read(currentUserProvider.notifier).state = fallbackAdmin;
+                    ref.read(lastActiveAdminProvider.notifier).state = fallbackAdmin;
+                    if (context.mounted) {
+                      ToastNotification.show(context, message: 'Switched to Administrator view (${fallbackAdmin.fullName})', type: ToastType.info);
+                    }
                   }
                 }
               } else if (val == 'logout') {
@@ -336,9 +394,11 @@ class _AppHeaderState extends ConsumerState<AppHeader> {
                   children: [
                     const Icon(Icons.swap_horiz_rounded, size: 18, color: AppColors.accentBlue),
                     const SizedBox(width: 10),
-                    Text(
-                      currentUser.role == UserRole.admin ? 'Switch to Supervisor View' : 'Switch to Admin View',
-                      style: const TextStyle(color: AppColors.accentBlue, fontWeight: FontWeight.w600),
+                    Expanded(
+                      child: Text(
+                        currentUser.role == UserRole.admin ? 'Switch to Supervisor View' : 'Switch to Admin View',
+                        style: const TextStyle(color: AppColors.accentBlue, fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ],
                 ),
@@ -374,13 +434,12 @@ class _AppHeaderState extends ConsumerState<AppHeader> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircleAvatar(
+                    UserAvatar(
+                      photoUrl: currentUser.photoUrl,
+                      initials: currentUser.initials,
                       radius: 14,
+                      fontSize: 10,
                       backgroundColor: AppColors.primaryNavy,
-                      child: Text(
-                        currentUser.initials,
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
                     ),
                     const SizedBox(width: 8),
                     Text(

@@ -90,13 +90,14 @@ class WorkAreaModel {
     int? assignedCount,
     String? status,
     String? areaSqKm,
+    bool clearSupervisor = false,
   }) {
     return WorkAreaModel(
       workareaId: workareaId ?? this.workareaId,
       name: name ?? this.name,
       description: description ?? this.description,
-      supervisorId: supervisorId ?? this.supervisorId,
-      supervisorName: supervisorName ?? this.supervisorName,
+      supervisorId: clearSupervisor ? null : (supervisorId ?? this.supervisorId),
+      supervisorName: clearSupervisor ? 'No supervisor' : (supervisorName ?? this.supervisorName),
       polygon: polygon ?? this.polygon,
       assignedCount: assignedCount ?? this.assignedCount,
       status: status ?? this.status,

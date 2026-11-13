@@ -1,4 +1,5 @@
 import '../models/user_model.dart';
+import '../models/passkey_model.dart';
 import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
@@ -22,6 +23,7 @@ class MockRepository implements DataRepository {
   final List<IncidentReportModel> _incidents;
   final List<LocationTrackingModel> _locationTracking;
   final List<ScheduleSheetModel> _scheduleSheets;
+  final List<PasskeyModel> _passkeys = [];
   final Set<String> _clearedMonths = {};
 
   MockRepository({
@@ -74,13 +76,82 @@ class MockRepository implements DataRepository {
   Future<void> updateWorkArea(WorkAreaModel area) async {
     final idx = _workAreas.indexWhere((a) => a.workareaId == area.workareaId);
     if (idx != -1) {
+      final oldArea = _workAreas[idx];
       final count = _countWorkersInArea(area.workareaId);
-      _workAreas[idx] = area.copyWith(assignedCount: count);
+      final isClearing = area.supervisorId == null ||
+          area.supervisorId!.isEmpty ||
+          area.supervisorName == 'No supervisor' ||
+          area.supervisorName == 'Unassigned';
+
+      _workAreas[idx] = area.copyWith(
+        assignedCount: count,
+        clearSupervisor: isClearing,
+      );
+
+      // Synchronize supervisor assignment in mock users list
+      if (isClearing) {
+        if (oldArea.supervisorId != null && oldArea.supervisorId!.isNotEmpty) {
+          final oldSupIdx = _users.indexWhere((u) => u.userId == oldArea.supervisorId);
+          if (oldSupIdx != -1) {
+            _users[oldSupIdx] = _users[oldSupIdx].copyWith(
+              clearAssignedArea: true,
+              assignedAreaId: null,
+              assignedAreaName: 'Unassigned',
+            );
+          }
+        }
+        if (area.supervisorId != null && area.supervisorId!.isNotEmpty) {
+          final newSupIdx = _users.indexWhere((u) => u.userId == area.supervisorId);
+          if (newSupIdx != -1) {
+            _users[newSupIdx] = _users[newSupIdx].copyWith(
+              clearAssignedArea: true,
+              assignedAreaId: null,
+              assignedAreaName: 'Unassigned',
+            );
+          }
+        }
+      } else {
+        // 1. If previous supervisor was replaced, clear their assignment
+        if (oldArea.supervisorId != null &&
+            oldArea.supervisorId!.isNotEmpty &&
+            oldArea.supervisorId != area.supervisorId) {
+          final oldSupIdx = _users.indexWhere((u) => u.userId == oldArea.supervisorId);
+          if (oldSupIdx != -1) {
+            _users[oldSupIdx] = _users[oldSupIdx].copyWith(
+              clearAssignedArea: true,
+              assignedAreaId: null,
+              assignedAreaName: 'Unassigned',
+            );
+          }
+        }
+
+        // 2. If new supervisor is assigned, associate them with this work area
+        if (area.supervisorId != null && area.supervisorId!.isNotEmpty) {
+          final newSupIdx = _users.indexWhere((u) => u.userId == area.supervisorId);
+          if (newSupIdx != -1) {
+            _users[newSupIdx] = _users[newSupIdx].copyWith(
+              assignedAreaId: area.workareaId,
+              assignedAreaName: area.name,
+            );
+          }
+        }
+      }
     }
   }
 
   @override
   Future<void> deleteWorkArea(String areaId) async {
+    final existing = _workAreas.where((a) => a.workareaId == areaId).firstOrNull;
+    if (existing != null && existing.supervisorId != null && existing.supervisorId!.isNotEmpty) {
+      final supIdx = _users.indexWhere((u) => u.userId == existing.supervisorId);
+      if (supIdx != -1) {
+        _users[supIdx] = _users[supIdx].copyWith(
+          clearAssignedArea: true,
+          assignedAreaId: null,
+          assignedAreaName: 'Unassigned',
+        );
+      }
+    }
     _workAreas.removeWhere((a) => a.workareaId == areaId);
   }
 
@@ -200,6 +271,37 @@ class MockRepository implements DataRepository {
         ),
       );
     }
+  }
+
+  // ==========================================
+  // WebAuthn Passkeys / Biometric Credentials
+  // ==========================================
+  @override
+  Future<List<PasskeyModel>> getUserPasskeys(String userId) async {
+    return _passkeys.where((p) => p.userId == userId).toList();
+  }
+
+  @override
+  Future<List<PasskeyModel>> getAllPasskeys() async {
+    return List.unmodifiable(_passkeys);
+  }
+
+  @override
+  Future<void> addPasskey(PasskeyModel passkey) async {
+    _passkeys.removeWhere((p) => p.credentialId == passkey.credentialId);
+    _passkeys.insert(0, passkey);
+  }
+
+  @override
+  Future<void> deletePasskey(String passkeyId) async {
+    _passkeys.removeWhere((p) => p.passkeyId == passkeyId);
+  }
+
+  @override
+  Future<UserModel?> findUserByPasskeyCredential(String credentialId) async {
+    final passkey = _passkeys.where((p) => p.credentialId == credentialId).firstOrNull;
+    if (passkey == null) return null;
+    return _users.where((u) => u.userId == passkey.userId).firstOrNull;
   }
 
   // Monthly Worker Schedule Sheets (Excel Workbook Integration)
@@ -421,13 +523,20 @@ class MockRepository implements DataRepository {
   }
 
   @override
-  Future<void> resolveAlert(String alertId) async {
+  Future<void> resolveAlert(
+    String alertId, {
+    String? resolvedBy,
+    String? responseAction,
+    String? responseNote,
+  }) async {
     final idx = _alerts.indexWhere((a) => a.alertId == alertId);
     if (idx != -1) {
       _alerts[idx] = _alerts[idx].copyWith(
         isResolved: true,
         resolvedAt: DateTime.now(),
-        responseAction: 'acknowledged',
+        resolvedBy: resolvedBy,
+        responseAction: responseAction ?? 'acknowledged',
+        responseNote: responseNote ?? 'Acknowledged',
       );
     }
   }

@@ -206,8 +206,8 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
     final descController = TextEditingController();
     final supervisors = ref.read(supervisorsProvider).value ??
         await ref.read(dataRepositoryProvider).getUsers(role: UserRole.supervisor);
-    String? supervisorId = supervisors.isNotEmpty ? supervisors.first.userId : null;
-    String supervisorName = supervisors.isNotEmpty ? supervisors.first.fullName : 'No supervisor';
+    String? supervisorId;
+    String supervisorName = 'No supervisor';
 
     if (!mounted) return;
     showDialog(
@@ -672,16 +672,33 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                             onPressed: () async {
                               if (nameController.text.trim().isEmpty) return;
+                              final isUnassigned = supervisorId == null ||
+                                  supervisorId!.isEmpty ||
+                                  supervisorName == 'No supervisor';
                               final updatedArea = area.copyWith(
                                 name: nameController.text.trim(),
                                 description: descController.text.trim(),
-                                supervisorId: supervisorId,
-                                supervisorName: supervisorName,
+                                supervisorId: isUnassigned ? null : supervisorId,
+                                supervisorName: isUnassigned ? 'No supervisor' : supervisorName,
+                                clearSupervisor: isUnassigned,
                                 status: status,
                                 polygon: (_newPolygonPoints.length >= 3) ? List.from(_newPolygonPoints) : area.polygon,
                               );
                               await ref.read(dataRepositoryProvider).updateWorkArea(updatedArea);
                               ref.invalidate(workAreasProvider);
+                              ref.invalidate(supervisorsProvider);
+                              ref.invalidate(employeesProvider);
+                              ref.invalidate(attendanceProvider);
+                              ref.invalidate(accomplishmentsProvider);
+                              ref.invalidate(leaveRequestsProvider);
+                              final curUser = ref.read(currentUserProvider);
+                              if (curUser.userId == supervisorId || curUser.userId == area.supervisorId) {
+                                final allUsers = await ref.read(dataRepositoryProvider).getUsers();
+                                final updatedCur = allUsers.where((u) => u.userId == curUser.userId).firstOrNull;
+                                if (updatedCur != null) {
+                                  ref.read(currentUserProvider.notifier).state = updatedCur;
+                                }
+                              }
                               final refreshed = await ref.read(dataRepositoryProvider).getWorkAreas();
                               final created = refreshed.firstWhere(
                                 (a) => a.workareaId == area.workareaId,
@@ -713,6 +730,50 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
             );
           },
         );
+      },
+    );
+  }
+
+  void _confirmUnassignSupervisor(WorkAreaModel area) {
+    ConfirmationDialog.show(
+      context,
+      title: 'Unassign Supervisor',
+      message: 'Are you sure you want to unassign ${area.supervisorName} from ${area.name}? The sector will remain unassigned until a new supervisor is designated.',
+      confirmLabel: 'Unassign',
+      confirmVariant: ButtonVariant.danger,
+      onConfirm: () async {
+        final updatedArea = area.copyWith(
+          clearSupervisor: true,
+          supervisorId: null,
+          supervisorName: 'No supervisor',
+        );
+        await ref.read(dataRepositoryProvider).updateWorkArea(updatedArea);
+        ref.invalidate(workAreasProvider);
+        ref.invalidate(supervisorsProvider);
+        ref.invalidate(employeesProvider);
+        ref.invalidate(attendanceProvider);
+        ref.invalidate(accomplishmentsProvider);
+        ref.invalidate(leaveRequestsProvider);
+        final curUser = ref.read(currentUserProvider);
+        if (curUser.userId == area.supervisorId) {
+          ref.read(currentUserProvider.notifier).state = curUser.copyWith(
+            clearAssignedArea: true,
+            assignedAreaId: null,
+            assignedAreaName: 'Unassigned',
+          );
+        }
+        if (_selectedArea?.workareaId == area.workareaId) {
+          setState(() {
+            _selectedArea = updatedArea;
+          });
+        }
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'Supervisor unassigned from "${area.name}".',
+            type: ToastType.info,
+          );
+        }
       },
     );
   }
@@ -1044,12 +1105,23 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                   );
 
                   final actionButtons = currentUser.role == UserRole.admin
-                      ? AppButton(
-                          label: _isDrawing ? 'Cancel Drawing' : '+ Add Work Area',
-                          icon: _isDrawing ? Icons.close : Icons.draw_outlined,
-                          variant: _isDrawing ? ButtonVariant.outline : ButtonVariant.primary,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          onPressed: () {
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AppButton(
+                              label: 'Shuffle Workers',
+                              icon: Icons.shuffle,
+                              variant: ButtonVariant.outline,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              onPressed: _showMonthlyShuffleDialog,
+                            ),
+                            const SizedBox(width: 8),
+                            AppButton(
+                              label: _isDrawing ? 'Cancel Drawing' : '+ Add Work Area',
+                              icon: _isDrawing ? Icons.close : Icons.draw_outlined,
+                              variant: _isDrawing ? ButtonVariant.outline : ButtonVariant.primary,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              onPressed: () {
                                 if (_isDrawing) {
                                   setState(() {
                                     _isDrawing = false;
@@ -1059,7 +1131,9 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                   _startDrawingGeofence();
                                 }
                               },
-                            )
+                            ),
+                          ],
+                        )
                       : const SizedBox.shrink();
 
                   if (isHeaderStacked) {
@@ -1431,18 +1505,65 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                 const SizedBox(height: 10),
                                 Row(
                                   children: [
-                                    const Icon(Icons.admin_panel_settings_outlined, size: 14, color: AppColors.textMuted),
+                                    Icon(
+                                      Icons.admin_panel_settings_outlined,
+                                      size: 14,
+                                      color: (area.supervisorId != null && area.supervisorId!.isNotEmpty)
+                                          ? AppColors.accentBlue
+                                          : AppColors.textMuted,
+                                    ),
                                     const SizedBox(width: 5),
                                     Expanded(
                                       child: Text(
                                         (area.supervisorId != null && area.supervisorName.isNotEmpty && area.supervisorName != 'No supervisor' && area.supervisorName != 'Field Supervisor' && area.supervisorName != 'Unassigned')
                                             ? area.supervisorName
                                             : 'No supervisor assigned',
-                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: AppColors.textSecondary),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: (area.supervisorId != null && area.supervisorId!.isNotEmpty)
+                                              ? FontWeight.w600
+                                              : FontWeight.w500,
+                                          color: (area.supervisorId != null && area.supervisorId!.isNotEmpty)
+                                              ? AppColors.textPrimary
+                                              : AppColors.textSecondary,
+                                        ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
+                                    if (currentUser.role == UserRole.admin &&
+                                        area.supervisorId != null &&
+                                        area.supervisorId!.isNotEmpty &&
+                                        area.supervisorName != 'No supervisor' &&
+                                        area.supervisorName != 'Unassigned') ...[
+                                      const SizedBox(width: 6),
+                                      Tooltip(
+                                        message: 'Unassign Supervisor from this sector',
+                                        child: InkWell(
+                                          borderRadius: BorderRadius.circular(4),
+                                          onTap: () => _confirmUnassignSupervisor(area),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.dangerBg,
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(color: AppColors.brightRed.withValues(alpha: 0.3)),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.person_remove_outlined, size: 12, color: AppColors.brightRed),
+                                                SizedBox(width: 3),
+                                                Text(
+                                                  'Unassign',
+                                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.brightRed),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                                 const SizedBox(height: 8),
@@ -1705,7 +1826,7 @@ class _WorkAreasViewState extends ConsumerState<WorkAreasView> {
                                         child: TextButton.icon(
                                           icon: const Icon(Icons.groups_outlined, size: 13, color: AppColors.accentBlue),
                                           label: const Text(
-                                            'Manage Workers',
+                                            'Assigned Workers',
                                             style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.accentBlue),
                                           ),
                                           style: ButtonStyle(

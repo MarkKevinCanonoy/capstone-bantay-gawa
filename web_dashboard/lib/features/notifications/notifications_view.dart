@@ -8,6 +8,7 @@ import '../../core/widgets/app_button.dart';
 import '../../core/widgets/toast_notification.dart';
 import '../../data/models/alert_model.dart';
 import '../../data/models/broadcast_model.dart';
+import '../../data/models/incident_report_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
 import '../../core/utils/uuid_helper.dart';
@@ -102,16 +103,17 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                     a.supervisorId == currentUser.userId ||
                     (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
                     a.workareaId == currentUser.assignedAreaId ||
-                    a.name == currentUser.assignedAreaName).toList()
+                    (currentUser.assignedAreaName != null && a.name.toLowerCase() == currentUser.assignedAreaName!.toLowerCase())).toList()
                 : rawAreas;
             final allUsers = isSupervisor
                 ? rawUsers.where((u) =>
                     u.role == UserRole.worker &&
+                    u.userId != currentUser.userId &&
                     supervisorAreas.any((a) =>
                         a.workareaId == u.assignedAreaId ||
                         (u.assignedAreaName != null && a.name.toLowerCase() == u.assignedAreaName!.toLowerCase())
                     )).toList()
-                : rawUsers;
+                : rawUsers.where((u) => u.userId != currentUser.userId).toList();
 
             return StatefulBuilder(
               builder: (context, setDialogState) {
@@ -222,19 +224,30 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                                 ),
                               )
                             else if (allUsers.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 8),
-                                child: Text('No personnel records found in system.', style: TextStyle(fontSize: 12, color: AppColors.dangerText)),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceSubtle,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: Text(
+                                  isSupervisor
+                                      ? 'No field workers currently assigned to your sector.'
+                                      : 'No personnel records found in system.',
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                                ),
                               )
                             else
                               DropdownButtonFormField<String>(
                                 isExpanded: true,
-                                initialValue: selectedUserId,
+                                initialValue: allUsers.any((u) => u.userId == selectedUserId) ? selectedUserId : allUsers.first.userId,
                                 items: allUsers.map((u) {
                                   final roleBadge = u.role == UserRole.supervisor ? 'Supervisor' : 'Worker';
                                   return DropdownMenuItem(
                                     value: u.userId,
-                                    child: Text('${u.fullName} ($roleBadge - ${u.assignedAreaName ?? "Unassigned"})', overflow: TextOverflow.ellipsis),
+                                    child: Text('${u.fullName} ($roleBadge - ${u.assignedAreaName ?? "Assigned Sector"})', overflow: TextOverflow.ellipsis),
                                   );
                                 }).toList(),
                                 onChanged: (val) {
@@ -454,23 +467,32 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
             a.supervisorId == currentUser.userId ||
             (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
             a.workareaId == currentUser.assignedAreaId ||
-            a.name == currentUser.assignedAreaName).toList()
+            (currentUser.assignedAreaName != null && a.name.toLowerCase() == currentUser.assignedAreaName!.toLowerCase())).toList()
         : rawAreas;
     final allUsers = isSupervisor
         ? rawUsers.where((u) =>
             u.role == UserRole.worker &&
+            u.userId != currentUser.userId &&
             supervisorAreas.any((a) =>
                 a.workareaId == u.assignedAreaId ||
                 (u.assignedAreaName != null && a.name.toLowerCase() == u.assignedAreaName!.toLowerCase())
             )).toList()
-        : rawUsers;
+        : rawUsers.where((u) => u.userId != currentUser.userId).toList();
 
     final isSpecific = _inPageRecipientType == 'Specific User (Individual Dispatch)' || _inPageRecipientType == 'Specific Worker in My Team';
     String recipientLabel;
     if (isSpecific) {
+      if (_inPageSelectedUserId == null || _inPageSelectedUserId!.isEmpty) {
+        ToastNotification.show(context, message: 'Please select a worker recipient in your sector before sending.', type: ToastType.error);
+        return;
+      }
       final targetUser = allUsers.where((u) => u.userId == _inPageSelectedUserId).firstOrNull;
-      final roleBadge = targetUser?.role == UserRole.supervisor ? 'Supervisor' : 'Worker';
-      final name = targetUser?.fullName ?? _inPageSelectedUserName ?? 'Worker';
+      if (targetUser == null) {
+        ToastNotification.show(context, message: 'Selected worker is not in your assigned sector.', type: ToastType.error);
+        return;
+      }
+      final roleBadge = targetUser.role == UserRole.supervisor ? 'Supervisor' : 'Worker';
+      final name = targetUser.fullName.isNotEmpty ? targetUser.fullName : (_inPageSelectedUserName ?? 'Worker');
       recipientLabel = '$name ($roleBadge)';
     } else if (_inPageRecipientType == 'My Assigned Team (Sector Workers)') {
       recipientLabel = 'Assigned Team (${currentUser.assignedAreaName ?? "Sector"})';
@@ -850,20 +872,155 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
                         ],
                       ),
                     )
+                  else if (!alert.isResolved && currentUser.role == UserRole.supervisor)
+                    SizedBox(
+                      width: double.infinity,
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          // 1. Settle Locally Action
+                          AppButton(
+                            label: 'Settle Locally (On-Site)',
+                            icon: Icons.check_circle_outline_rounded,
+                            variant: ButtonVariant.outline,
+                            onPressed: () async {
+                              try {
+                                await ref.read(dataRepositoryProvider).resolveAlert(
+                                  alert.alertId,
+                                  resolvedBy: currentUser.userId,
+                                  responseAction: 'settled_locally',
+                                  responseNote: 'Verified and settled locally on-site by supervisor ${currentUser.fullName}.',
+                                );
+                                ref.invalidate(alertsProvider);
+                                if (dialogCtx.mounted) {
+                                  Navigator.of(dialogCtx).pop();
+                                }
+                                if (mounted) {
+                                  ToastNotification.show(context, message: 'Alert resolved and marked as settled locally.', type: ToastType.success);
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ToastNotification.show(context, message: 'Failed to settle alert locally: $e', type: ToastType.error);
+                                }
+                              }
+                            },
+                          ),
+
+                          // 2. Direct Worker to Post Action
+                          AppButton(
+                            label: 'Direct Worker to Post',
+                            icon: Icons.send_rounded,
+                            variant: ButtonVariant.primary,
+                            onPressed: () async {
+                              final workerName = alert.workerName ?? 'Worker';
+                              String targetWorkerId = alert.userId ?? '';
+                              if (targetWorkerId.isEmpty) {
+                                final emps = ref.read(employeesProvider).value ?? [];
+                                final match = emps.where((e) => e.fullName.toLowerCase() == workerName.toLowerCase()).toList();
+                                if (match.isNotEmpty) {
+                                  targetWorkerId = match.first.userId;
+                                }
+                              }
+
+                              try {
+                                final directive = BroadcastModel(
+                                  notificationId: UuidHelper.generate(),
+                                  senderId: currentUser.userId,
+                                  receiverId: targetWorkerId.isNotEmpty ? targetWorkerId : null,
+                                  subject: 'Immediate Field Directive: ${alert.title}',
+                                  message: 'Urgent notice for $workerName: Attendance or geofence irregularity detected in ${alert.workareaName ?? "your assigned sector"}. Please return to your post immediately.',
+                                  recipients: 'Specific Worker in My Team',
+                                  type: 'alert',
+                                  isConfidential: true,
+                                  deliveredCount: 1,
+                                  sentAt: DateTime.now(),
+                                );
+                                await ref.read(dataRepositoryProvider).addBroadcast(directive);
+                                await ref.read(dataRepositoryProvider).resolveAlert(
+                                  alert.alertId,
+                                  resolvedBy: currentUser.userId,
+                                  responseAction: 'field_directive_sent',
+                                  responseNote: 'Field directive dispatched to worker by supervisor ${currentUser.fullName}.',
+                                );
+                                ref.invalidate(alertsProvider);
+                                ref.invalidate(broadcastsProvider);
+
+                                if (dialogCtx.mounted) {
+                                  Navigator.of(dialogCtx).pop();
+                                }
+                                if (mounted) {
+                                  ToastNotification.show(context, message: 'Field directive dispatched to $workerName.', type: ToastType.info);
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ToastNotification.show(context, message: 'Failed to dispatch field directive: $e', type: ToastType.error);
+                                }
+                              }
+                            },
+                          ),
+
+                          // 3. Escalate to Admin Action
+                          AppButton(
+                            label: 'Escalate to Admin',
+                            icon: Icons.arrow_upward_rounded,
+                            variant: ButtonVariant.danger,
+                            onPressed: () async {
+                              final workerName = alert.workerName ?? 'Worker';
+                              String targetWorkerId = alert.userId ?? '';
+                              if (targetWorkerId.isEmpty) {
+                                final emps = ref.read(employeesProvider).value ?? [];
+                                final match = emps.where((e) => e.fullName.toLowerCase() == workerName.toLowerCase()).toList();
+                                if (match.isNotEmpty) {
+                                  targetWorkerId = match.first.userId;
+                                }
+                              }
+
+                              try {
+                                final report = IncidentReportModel(
+                                  reportId: UuidHelper.generate(),
+                                  reporterId: currentUser.userId,
+                                  reporterName: currentUser.fullName,
+                                  reportedId: targetWorkerId,
+                                  reportedName: workerName,
+                                  issueType: alert.title,
+                                  description: 'ESCALATED FIELD ALERT: ${alert.description}',
+                                  status: 'escalated_to_admin',
+                                  isEscalated: true,
+                                  createdAt: DateTime.now(),
+                                );
+                                await ref.read(dataRepositoryProvider).addIncident(report);
+                                await ref.read(dataRepositoryProvider).resolveAlert(
+                                  alert.alertId,
+                                  resolvedBy: currentUser.userId,
+                                  responseAction: 'escalated_to_admin',
+                                  responseNote: 'Escalated to Central Admin for disciplinary investigation by supervisor ${currentUser.fullName}.',
+                                );
+                                ref.invalidate(alertsProvider);
+                                ref.invalidate(incidentsProvider);
+
+                                if (dialogCtx.mounted) {
+                                  Navigator.of(dialogCtx).pop();
+                                }
+                                if (mounted) {
+                                  ToastNotification.show(context, message: 'Alert escalated to Central Admin with incident report filed.', type: ToastType.warning);
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ToastNotification.show(context, message: 'Failed to escalate alert: $e', type: ToastType.error);
+                                }
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    )
                   else
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        if (!alert.isResolved && currentUser.role == UserRole.supervisor)
-                          const Expanded(
-                            child: Text(
-                              'Advisory overview only. Formal warning notices and disciplinary reviews are managed by Central Admin.',
-                              style: TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
-                            ),
-                          )
-                        else
-                          const Spacer(),
-                        const SizedBox(width: 12),
                         AppButton(
                           label: 'Close',
                           variant: ButtonVariant.outline,
@@ -900,17 +1057,16 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
             a.supervisorId == currentUser.userId ||
             (a.supervisorName.isNotEmpty && a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
             a.workareaId == currentUser.assignedAreaId ||
-            a.name == currentUser.assignedAreaName).toList()
+            (currentUser.assignedAreaName != null && a.name.toLowerCase() == currentUser.assignedAreaName!.toLowerCase())).toList()
         : rawWorkAreas;
 
     final allUsers = isSupervisor
         ? rawAllUsers.where((emp) {
-            if (emp.role == UserRole.admin) return false;
-            if (emp.role == UserRole.supervisor && emp.userId != currentUser.userId) return false;
+            if (emp.role != UserRole.worker) return false;
+            if (emp.userId == currentUser.userId) return false;
             return workAreas.any((a) =>
                 a.workareaId == emp.assignedAreaId ||
-                (emp.assignedAreaName != null && a.name.toLowerCase() == emp.assignedAreaName!.toLowerCase()) ||
-                (emp.role == UserRole.supervisor && emp.userId == currentUser.userId));
+                (emp.assignedAreaName != null && a.name.toLowerCase() == emp.assignedAreaName!.toLowerCase()));
           }).toList()
         : rawAllUsers;
 
@@ -918,7 +1074,11 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
         ? rawAlerts.where((alt) =>
             alt.supervisorId == currentUser.userId ||
             (alt.supervisorName != null && alt.supervisorName!.isNotEmpty && alt.supervisorName!.toLowerCase() == currentUser.fullName.toLowerCase()) ||
-            workAreas.any((a) => (alt.workareaId != null && alt.workareaId == a.workareaId) || (alt.workareaName != null && a.name.toLowerCase() == alt.workareaName!.toLowerCase())) ||
+            workAreas.any((a) =>
+                (alt.workareaId != null && alt.workareaId == a.workareaId) ||
+                (alt.workareaName != null && a.name.toLowerCase() == alt.workareaName!.toLowerCase()) ||
+                alt.description.toLowerCase().contains(a.name.toLowerCase()) ||
+                alt.title.toLowerCase().contains(a.name.toLowerCase())) ||
             allUsers.any((e) => alt.userId != null && e.userId == alt.userId)
           ).toList()
         : rawAlerts;
@@ -1714,7 +1874,11 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
   // TAB 2: Modern Broadcast Hub (Split-View Studio)
   // ==========================================
   Widget _buildBroadcastHubTab(List<BroadcastModel> broadcasts, List<UserModel> allUsers) {
-    final personnelUsers = allUsers.where((u) => u.role != UserRole.admin).toList();
+    final currentUser = ref.watch(currentUserProvider);
+    final isSupervisor = currentUser.role == UserRole.supervisor;
+    final personnelUsers = isSupervisor
+        ? allUsers.where((u) => u.role == UserRole.worker && u.userId != currentUser.userId).toList()
+        : allUsers.where((u) => u.role != UserRole.admin && u.userId != currentUser.userId).toList();
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 960;
@@ -1835,32 +1999,51 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
             const SizedBox(height: 12),
             const Text('Select Recipient *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
             const SizedBox(height: 6),
-            DropdownButtonFormField<String>(
-              isExpanded: true,
-              initialValue: _inPageSelectedUserId ?? (allUsers.isNotEmpty ? allUsers.first.userId : null),
-              decoration: InputDecoration(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
-                filled: true,
-                fillColor: AppColors.surfaceSubtle,
+            if (allUsers.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceSubtle,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(
+                  isSupervisor
+                      ? 'No field workers currently assigned to your sector.'
+                      : 'No personnel records found in system.',
+                  style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                ),
+              )
+            else
+              DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: allUsers.any((u) => u.userId == _inPageSelectedUserId)
+                    ? _inPageSelectedUserId
+                    : (allUsers.isNotEmpty ? allUsers.first.userId : null),
+                decoration: InputDecoration(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
+                  filled: true,
+                  fillColor: AppColors.surfaceSubtle,
+                ),
+                items: allUsers.map((u) {
+                  final roleBadge = u.role == UserRole.supervisor ? 'Supervisor' : 'Worker';
+                  return DropdownMenuItem(
+                    value: u.userId,
+                    child: Text('${u.fullName} ($roleBadge - ${u.assignedAreaName ?? "Assigned Sector"})', overflow: TextOverflow.ellipsis),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    final found = allUsers.firstWhere((u) => u.userId == val);
+                    setState(() {
+                      _inPageSelectedUserId = val;
+                      _inPageSelectedUserName = found.fullName;
+                    });
+                  }
+                },
               ),
-              items: allUsers.map((u) {
-                final roleBadge = u.role == UserRole.supervisor ? 'Supervisor' : 'Worker';
-                return DropdownMenuItem(
-                  value: u.userId,
-                  child: Text('${u.fullName} ($roleBadge - ${u.assignedAreaName ?? "Unassigned"})', overflow: TextOverflow.ellipsis),
-                );
-              }).toList(),
-              onChanged: (val) {
-                if (val != null) {
-                  final found = allUsers.firstWhere((u) => u.userId == val);
-                  setState(() {
-                    _inPageSelectedUserId = val;
-                    _inPageSelectedUserName = found.fullName;
-                  });
-                }
-              },
-            ),
           ],
 
           const SizedBox(height: 14),
@@ -1868,16 +2051,24 @@ class _NotificationsViewState extends ConsumerState<NotificationsView> with Sing
           // Quick Subject Templates
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const Text('Subject Title *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-              Row(
-                children: [
-                  _buildTemplateChip('Weather Alert', 'Heavy Rain Advisory & Safety Protocol'),
-                  const SizedBox(width: 4),
-                  _buildTemplateChip('Sector Muster', 'Mandatory Morning Assembly Notice'),
-                  const SizedBox(width: 4),
-                  _buildTemplateChip('Assembly Notice', 'Urgent General Field Briefing Notice'),
-                ],
+              const SizedBox(width: 8),
+              Flexible(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildTemplateChip('Weather Alert', 'Heavy Rain Advisory & Safety Protocol'),
+                      const SizedBox(width: 4),
+                      _buildTemplateChip('Sector Muster', 'Mandatory Morning Assembly Notice'),
+                      const SizedBox(width: 4),
+                      _buildTemplateChip('Assembly Notice', 'Urgent General Field Briefing Notice'),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),

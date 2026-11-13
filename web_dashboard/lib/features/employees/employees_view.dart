@@ -11,6 +11,7 @@ import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/confirmation_dialog.dart';
 import '../../core/widgets/toast_notification.dart';
+import '../../core/widgets/user_avatar.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
 import 'widgets/web_camera_dialog.dart';
@@ -233,6 +234,31 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                         ),
                       ),
                       const SizedBox(height: 18),
+
+                      // Supervisor Notice (Short & Clean)
+                      if (role == UserRole.supervisor) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.shield_outlined, size: 16, color: AppColors.accentEmerald),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Pending activation: Supervisor sets password and optional biometrics upon first sign-in.',
+                                  style: TextStyle(fontSize: 12, color: Color(0xFF15803D), fontWeight: FontWeight.w500),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
 
                       // Shift Schedule Selection for Field Workers (SRS FR-12)
                       if (role == UserRole.worker) ...[
@@ -586,6 +612,19 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                                       return;
                                     }
 
+                                    final cleanUsername = usernameController.text.trim().toLowerCase();
+                                    final existingUsers = await ref.read(dataRepositoryProvider).getUsers();
+                                    if (existingUsers.any((u) => u.username.toLowerCase() == cleanUsername)) {
+                                      if (context.mounted) {
+                                        ToastNotification.show(
+                                          context,
+                                          message: 'An account with the email or username "$cleanUsername" already exists. Please use a different address.',
+                                          type: ToastType.warning,
+                                        );
+                                      }
+                                      return;
+                                    }
+
                                     final generatedQrToken = 'BW-ORMC-${DateTime.now().millisecondsSinceEpoch}';
                                     final newUserId = UuidHelper.generate();
 
@@ -597,7 +636,7 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
 
                                     final newUser = UserModel(
                                       userId: newUserId,
-                                      username: usernameController.text.trim().toLowerCase(),
+                                      username: cleanUsername,
                                       firstName: firstController.text.trim(),
                                       lastName: lastController.text.trim(),
                                       contactNumber: contactController.text.trim().isNotEmpty ? contactController.text.trim() : '+63 900 000 0000',
@@ -636,9 +675,13 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                                       debugPrint('Registration error: $e');
                                       if (context.mounted) {
                                         setDialogState(() => isSubmitting = false);
+                                        var errorMsg = e.toString().replaceAll("Exception: ", "");
+                                        if (errorMsg.contains('users_username_key') || errorMsg.contains('duplicate key')) {
+                                          errorMsg = 'An account with this email/username already exists. Please choose a different email.';
+                                        }
                                         ToastNotification.show(
                                           context,
-                                          message: 'Registration failed: ${e.toString().replaceAll("Exception: ", "")}',
+                                          message: 'Registration failed: $errorMsg',
                                           type: ToastType.error,
                                         );
                                       }
@@ -658,7 +701,232 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
     );
   }
 
+  void _showAssignAreaModal(UserModel emp) async {
+    final repo = ref.read(dataRepositoryProvider);
+    final workAreas = await repo.getWorkAreas();
+    String? selectedAreaId = emp.assignedAreaId;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (sbContext, setModalState) {
+            final isSupervisor = emp.role == UserRole.supervisor;
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              backgroundColor: AppColors.surface,
+              child: Container(
+                width: 520,
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.navActiveBackground,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.edit_location_alt_outlined, color: AppColors.accentBlue, size: 24),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isSupervisor ? 'Assign Supervisor Sector' : 'Assign Worker Sector',
+                                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${emp.fullName} (@${emp.username} • ${emp.roleDisplayName})',
+                                style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
+                          onPressed: () => Navigator.of(dialogCtx).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(height: 1, color: AppColors.border),
+                    const SizedBox(height: 16),
+
+                    const Text(
+                      'Target Work Area Sector *',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 8),
+
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String?>(
+                          value: workAreas.any((a) => a.workareaId == selectedAreaId) ? selectedAreaId : null,
+                          isExpanded: true,
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                          items: [
+                            const DropdownMenuItem<String?>(
+                              value: null,
+                              child: Row(
+                                children: [
+                                  Icon(Icons.location_off_outlined, size: 16, color: AppColors.brightRed),
+                                  SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Unassigned (No designated sector)',
+                                      style: TextStyle(color: AppColors.brightRed),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            ...workAreas.map((wa) {
+                              final hasSup = wa.supervisorId != null && wa.supervisorId!.isNotEmpty;
+                              final labelExtra = isSupervisor
+                                  ? (hasSup ? (wa.supervisorId == emp.userId ? ' (Current Sector)' : ' [Has Sup: ${wa.supervisorName}]') : ' (No Supervisor)')
+                                  : '';
+
+                              return DropdownMenuItem<String?>(
+                                value: wa.workareaId,
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.location_on_outlined, size: 16, color: AppColors.accentBlue),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        '${wa.name}$labelExtra',
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                          onChanged: (val) {
+                            setModalState(() {
+                              selectedAreaId = val;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        AppButton(
+                          label: 'Cancel',
+                          variant: ButtonVariant.outline,
+                          onPressed: () => Navigator.of(dialogCtx).pop(),
+                        ),
+                        const SizedBox(width: 10),
+                        AppButton(
+                          label: selectedAreaId == null ? 'Unassign Sector' : 'Save Assignment',
+                          variant: selectedAreaId == null ? ButtonVariant.danger : ButtonVariant.primary,
+                          icon: Icons.check_circle_outline,
+                          onPressed: () async {
+                            final targetArea = workAreas.where((a) => a.workareaId == selectedAreaId).firstOrNull;
+
+                            if (isSupervisor) {
+                              // If supervisor was previously assigned to any area, unassign that previous area
+                              final prevAreas = workAreas.where((a) =>
+                                  a.supervisorId == emp.userId ||
+                                  (emp.assignedAreaId != null && a.workareaId == emp.assignedAreaId)).toList();
+                              for (final prev in prevAreas) {
+                                if (targetArea == null || prev.workareaId != targetArea.workareaId) {
+                                  final unassigned = prev.copyWith(
+                                    clearSupervisor: true,
+                                    supervisorId: null,
+                                    supervisorName: 'No supervisor',
+                                  );
+                                  await repo.updateWorkArea(unassigned);
+                                }
+                              }
+
+                              // If assigning to a new area
+                              if (targetArea != null) {
+                                final assigned = targetArea.copyWith(
+                                  supervisorId: emp.userId,
+                                  supervisorName: emp.fullName,
+                                  clearSupervisor: false,
+                                );
+                                await repo.updateWorkArea(assigned);
+                              }
+                            } else {
+                              // Worker assignment
+                              await repo.assignWorkerToArea(
+                                workerId: emp.userId,
+                                areaId: selectedAreaId,
+                                areaName: targetArea?.name,
+                              );
+                            }
+
+                            ref.invalidate(employeesProvider);
+                            ref.invalidate(supervisorsProvider);
+                            ref.invalidate(workAreasProvider);
+                            ref.invalidate(attendanceProvider);
+                            ref.invalidate(accomplishmentsProvider);
+                            ref.invalidate(leaveRequestsProvider);
+
+                            final curUser = ref.read(currentUserProvider);
+                            if (curUser.userId == emp.userId) {
+                              final updatedCur = curUser.copyWith(
+                                clearAssignedArea: selectedAreaId == null,
+                                assignedAreaId: selectedAreaId,
+                                assignedAreaName: targetArea?.name ?? 'Unassigned',
+                              );
+                              ref.read(currentUserProvider.notifier).state = updatedCur;
+                            }
+
+                            if (dialogCtx.mounted) {
+                              Navigator.of(dialogCtx).pop();
+                            }
+                            if (mounted) {
+                              ToastNotification.show(
+                                context,
+                                message: selectedAreaId == null
+                                    ? '${emp.fullName} is now unassigned from work areas.'
+                                    : '${emp.fullName} assigned to ${targetArea!.name}.',
+                                type: ToastType.success,
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _showEmployeeDetailsModal(UserModel emp) {
+    final currentUser = ref.read(currentUserProvider);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -666,10 +934,11 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
         backgroundColor: AppColors.surface,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 20,
+            UserAvatar(
+              photoUrl: emp.photoUrl,
+              initials: emp.initials,
+              radius: 22,
               backgroundColor: AppColors.primaryNavy,
-              child: Text(emp.initials, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(width: 12),
             Column(
@@ -689,7 +958,27 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
             children: [
               const Divider(),
               const SizedBox(height: 8),
-              _buildDetailRow('Assigned Area', emp.assignedAreaName ?? 'Unassigned'),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: _buildDetailRow('Assigned Area', emp.assignedAreaName ?? 'Unassigned'),
+                  ),
+                  if (currentUser.role == UserRole.admin && emp.role != UserRole.admin) ...[
+                    TextButton.icon(
+                      icon: const Icon(Icons.edit_location_alt_outlined, size: 14, color: AppColors.accentBlue),
+                      label: Text(
+                        (emp.assignedAreaId != null && emp.assignedAreaId!.isNotEmpty) ? 'Change / Unassign' : 'Assign Area',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.accentBlue),
+                      ),
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        _showAssignAreaModal(emp);
+                      },
+                    ),
+                  ],
+                ],
+              ),
               _buildDetailRow('Contact Number', emp.contactNumber),
               _buildDetailRow('Account Status', emp.status.toUpperCase()),
               if (emp.role == UserRole.worker) ...[
@@ -837,7 +1126,15 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(fontSize: 13, color: AppColors.textMuted)),
-          Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+            ),
+          ),
         ],
       ),
     );
@@ -1107,11 +1404,11 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                         Widget tableWidget = Table(
                           defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                           columnWidths: const {
-                            0: FlexColumnWidth(2.6), // PERSONNEL
-                            1: FlexColumnWidth(1.6), // ROLE
-                            2: FlexColumnWidth(2.0), // ASSIGNED AREA
-                            3: FlexColumnWidth(1.4), // WORKFORCE STANDING
-                            4: FlexColumnWidth(1.0), // ACTIONS
+                            0: FlexColumnWidth(2.2), // PERSONNEL
+                            1: FlexColumnWidth(1.4), // ROLE
+                            2: FlexColumnWidth(1.8), // ASSIGNED AREA
+                            3: FlexColumnWidth(1.6), // WORKFORCE STANDING
+                            4: FlexColumnWidth(1.5), // ACTIONS
                           },
                           children: [
                             TableRow(
@@ -1160,13 +1457,12 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                                               width: 1.5,
                                             ),
                                           ),
-                                          child: CircleAvatar(
+                                          child: UserAvatar(
+                                            photoUrl: emp.photoUrl,
+                                            initials: emp.initials,
                                             radius: 15,
                                             backgroundColor: isSupervisor ? AppColors.accentEmerald : AppColors.primaryNavy,
-                                            child: Text(
-                                              emp.initials,
-                                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                                            ),
+                                            fontSize: 10,
                                           ),
                                         ),
                                         const SizedBox(width: 12),
@@ -1347,6 +1643,23 @@ class _EmployeesViewState extends ConsumerState<EmployeesView> {
                                             onPressed: () => _showEmployeeDetailsModal(emp),
                                           ),
                                         ),
+                                        if (currentUser.role == UserRole.admin && emp.role != UserRole.admin) ...[
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            decoration: BoxDecoration(
+                                              color: AppColors.surfaceSubtle,
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: AppColors.border),
+                                            ),
+                                            child: IconButton(
+                                              icon: const Icon(Icons.edit_location_alt_outlined, size: 16, color: AppColors.accentEmerald),
+                                              tooltip: (emp.assignedAreaId != null && emp.assignedAreaId!.isNotEmpty) ? 'Reassign / Unassign Area' : 'Assign Work Area',
+                                              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                              padding: EdgeInsets.zero,
+                                              onPressed: () => _showAssignAreaModal(emp),
+                                            ),
+                                          ),
+                                        ],
                                         if (currentUser.role == UserRole.admin) ...[
                                           const SizedBox(width: 8),
                                           Container(

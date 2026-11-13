@@ -1,4 +1,5 @@
 import '../models/user_model.dart';
+import '../models/passkey_model.dart';
 import '../models/work_area_model.dart';
 import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
@@ -34,6 +35,13 @@ abstract class DataRepository {
     required String days,
     String? areaName,
   });
+
+  // WebAuthn Passkeys / Biometric Credentials
+  Future<List<PasskeyModel>> getUserPasskeys(String userId);
+  Future<void> addPasskey(PasskeyModel passkey);
+  Future<void> deletePasskey(String passkeyId);
+  Future<UserModel?> findUserByPasskeyCredential(String credentialId);
+  Future<List<PasskeyModel>> getAllPasskeys();
 
   // Monthly Worker Schedule Sheets (Excel Workbook Integration)
   Future<List<ScheduleSheetModel>> getScheduleSheets({int? month, int? year});
@@ -72,7 +80,12 @@ abstract class DataRepository {
 
   // Alerts & Warnings (UC-06 & UC-09)
   Future<List<AlertModel>> getAlerts({String? areaId, String? category});
-  Future<void> resolveAlert(String alertId);
+  Future<void> resolveAlert(
+    String alertId, {
+    String? resolvedBy,
+    String? responseAction,
+    String? responseNote,
+  });
   Future<void> sendWarningForAlert({
     required String alertId,
     required String workerId,

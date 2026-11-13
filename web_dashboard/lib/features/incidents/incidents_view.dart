@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/uuid_helper.dart';
+import '../../core/utils/web_camera_helper.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/toast_notification.dart';
+import '../../core/widgets/user_avatar.dart';
 import '../../data/models/incident_report_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
@@ -188,6 +191,357 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
       }
     }
     return _buildBrokenProofIcon();
+  }
+
+  void _showReportWorkerIssueDialog() async {
+    final currentUser = ref.read(currentUserProvider);
+    final repo = ref.read(dataRepositoryProvider);
+
+    List<UserModel> allWorkers;
+    final cached = ref.read(employeesProvider).value;
+    if (cached != null && cached.isNotEmpty) {
+      allWorkers = cached.where((u) => u.role == UserRole.worker).toList();
+    } else {
+      try {
+        allWorkers = await repo.getUsers(role: UserRole.worker);
+      } catch (_) {
+        allWorkers = [];
+      }
+    }
+
+    final rawWorkAreas = ref.read(workAreasProvider).value ?? [];
+    final assignedAreas = currentUser.role == UserRole.supervisor
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            a.workareaId == currentUser.assignedAreaId ||
+            a.name == currentUser.assignedAreaName).toList()
+        : rawWorkAreas;
+
+    final scopedWorkers = currentUser.role == UserRole.supervisor
+        ? allWorkers.where((w) =>
+            assignedAreas.any((a) =>
+                a.workareaId == w.assignedAreaId ||
+                (w.assignedAreaName != null &&
+                    a.name.toLowerCase() == w.assignedAreaName!.toLowerCase()))
+          ).toList()
+        : allWorkers;
+
+    if (!mounted) return;
+
+    if (scopedWorkers.isEmpty) {
+      ToastNotification.show(
+        context,
+        message: currentUser.role == UserRole.supervisor
+            ? 'No assigned field workers found in your designated sectors to report.'
+            : 'No field workers available in the workforce pool.',
+        type: ToastType.warning,
+      );
+      return;
+    }
+
+    String selectedWorkerId = scopedWorkers.first.userId;
+    String selectedIssueType = 'Unauthorized Absence / Not Working';
+    final descController = TextEditingController();
+    Uint8List? proofImageBytes;
+    bool isSubmitting = false;
+
+    final issueTypes = [
+      'Unauthorized Absence / Not Working',
+      'Outside Assigned Area / Boundary Breach',
+      'Insubordination / Conduct Issue',
+      'Poor Performance / Incomplete Duty',
+      'Other Field Violation',
+    ];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (modalCtx, setModal) {
+          final selectedWorker = scopedWorkers.firstWhere(
+            (w) => w.userId == selectedWorkerId,
+            orElse: () => scopedWorkers.first,
+          );
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            backgroundColor: AppColors.surface,
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.dangerBg.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.report_problem_outlined, color: AppColors.brightRed, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Report Worker Issue',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        currentUser.role == UserRole.supervisor
+                            ? 'Submit formal disciplinary report to Central Admin (US-19, UC-11).'
+                            : 'Log administrative disciplinary incident report.',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 18, color: AppColors.textMuted),
+                  onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Worker Selection
+                    const Text('Field Worker *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedWorkerId,
+                          isExpanded: true,
+                          items: scopedWorkers.map((w) {
+                            return DropdownMenuItem(
+                              value: w.userId,
+                              child: Row(
+                                children: [
+                                  UserAvatar(photoUrl: w.photoUrl, initials: w.initials, radius: 12),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      '${w.fullName} (${w.assignedAreaName ?? "Unassigned"})',
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${w.creditScore}%',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: w.creditScore >= 80
+                                          ? AppColors.successText
+                                          : (w.creditScore >= 50 ? AppColors.warningText : AppColors.dangerText),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: isSubmitting
+                              ? null
+                              : (val) {
+                                  if (val != null) setModal(() => selectedWorkerId = val);
+                                },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Issue Type Selection
+                    const Text('Issue Type *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedIssueType,
+                          isExpanded: true,
+                          items: issueTypes.map((type) {
+                            return DropdownMenuItem(
+                              value: type,
+                              child: Text(type, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                            );
+                          }).toList(),
+                          onChanged: isSubmitting
+                              ? null
+                              : (val) {
+                                  if (val != null) setModal(() => selectedIssueType = val);
+                                },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Description Input
+                    const Text('Description & Specific Observations *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    TextField(
+                      controller: descController,
+                      maxLines: 4,
+                      enabled: !isSubmitting,
+                      decoration: InputDecoration(
+                        hintText: 'Detail the observed breach, time, and circumstances...',
+                        hintStyle: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
+                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.brightRed, width: 1.5)),
+                        filled: true,
+                        fillColor: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Photo Proof
+                    const Text('Attached Photo Proof / Evidence', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    if (proofImageBytes != null) ...[
+                      Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.memory(
+                              proofImageBytes!,
+                              width: 80,
+                              height: 80,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Evidence photo attached', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.successText)),
+                                const SizedBox(height: 4),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.delete_outline, size: 14, color: AppColors.brightRed),
+                                  label: const Text('Remove Photo', style: TextStyle(fontSize: 11, color: AppColors.brightRed)),
+                                  onPressed: isSubmitting ? null : () => setModal(() => proofImageBytes = null),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.upload_file_rounded, size: 16),
+                        label: const Text('Upload Evidence Image (.jpg, .png)'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.textPrimary,
+                          side: const BorderSide(color: AppColors.border),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: isSubmitting
+                            ? null
+                            : () async {
+                                final bytes = await WebCameraHelper.pickImageFile(
+                                  onError: (msg) {
+                                    if (dialogCtx.mounted) {
+                                      ToastNotification.show(dialogCtx, message: msg, type: ToastType.error);
+                                    }
+                                  },
+                                );
+                                if (bytes != null && bytes.isNotEmpty) {
+                                  setModal(() => proofImageBytes = bytes);
+                                }
+                              },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(dialogCtx),
+                child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+              ),
+              ElevatedButton.icon(
+                icon: isSubmitting
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.send_rounded, size: 16),
+                label: Text(isSubmitting ? 'Submitting...' : 'Submit to Admin'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.brightRed,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: isSubmitting
+                    ? null
+                    : () async {
+                        final desc = descController.text.trim();
+                        if (desc.isEmpty) {
+                          ToastNotification.show(dialogCtx, message: 'Please provide a description of the observed issue.', type: ToastType.error);
+                          return;
+                        }
+
+                        setModal(() => isSubmitting = true);
+                        try {
+                          final newReport = IncidentReportModel(
+                            reportId: UuidHelper.generate(),
+                            reporterId: currentUser.userId,
+                            reporterName: currentUser.fullName,
+                            reportedId: selectedWorker.userId,
+                            reportedName: selectedWorker.fullName,
+                            workareaId: selectedWorker.assignedAreaId,
+                            areaName: selectedWorker.assignedAreaName,
+                            issueType: selectedIssueType,
+                            description: desc,
+                            imageUrl: proofImageBytes != null ? 'data:image/jpeg;base64,${base64Encode(proofImageBytes!)}' : null,
+                            status: 'pending',
+                            isEscalated: true,
+                            supervisorNotes: currentUser.role == UserRole.supervisor ? 'Filed by Field Supervisor: ${currentUser.fullName}' : null,
+                            createdAt: DateTime.now(),
+                          );
+
+                          await repo.addIncident(newReport);
+                          ref.invalidate(incidentsProvider);
+
+                          if (dialogCtx.mounted) {
+                            Navigator.pop(dialogCtx);
+                          }
+                          if (mounted) {
+                            ToastNotification.show(
+                              context,
+                              message: 'Incident report for ${selectedWorker.fullName} submitted to Central Administration.',
+                              type: ToastType.success,
+                            );
+                          }
+                        } catch (e) {
+                          setModal(() => isSubmitting = false);
+                          if (dialogCtx.mounted) {
+                            ToastNotification.show(dialogCtx, message: 'Failed to submit report: $e', type: ToastType.error);
+                          }
+                        }
+                      },
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   void _showSettleLocallyDialog(IncidentReportModel inc) {
@@ -977,28 +1331,29 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header Row with Date Navigator
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Worker Incident & Issue Reports', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    const SizedBox(height: 4),
-                    Text(
-                      currentUser.role == UserRole.admin
-                          ? 'Administrative oversight of worker reports and supervisor escalations across Ormoc sectors.'
-                          : 'Review worker issue reports in your sector. Settle locally or escalate to Central Admin.',
-                      style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
-                    ),
-                  ],
-                ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isStacked = constraints.maxWidth < 950;
+              final titleWidget = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (currentUser.role == UserRole.supervisor && currentUser.assignedAreaName != null) ...[
+                  const Text('Worker Incident & Issue Reports', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                  const SizedBox(height: 4),
+                  Text(
+                    currentUser.role == UserRole.admin
+                        ? 'Administrative oversight of worker reports and supervisor escalations across Ormoc sectors.'
+                        : 'Review worker issue reports in your sector. Settle locally or escalate to Central Admin.',
+                    style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                  ),
+                ],
+              );
+
+              final actionsWidget = Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (currentUser.role == UserRole.supervisor && currentUser.assignedAreaName != null)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
@@ -1007,6 +1362,7 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
                         border: Border.all(color: AppColors.accentBlue.withValues(alpha: 0.3)),
                       ),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(Icons.shield_outlined, size: 16, color: AppColors.accentBlue),
                           const SizedBox(width: 8),
@@ -1017,8 +1373,12 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                  ],
+                  AppButton(
+                    label: '+ Report Worker Issue',
+                    icon: Icons.report_problem_outlined,
+                    variant: ButtonVariant.danger,
+                    onPressed: _showReportWorkerIssueDialog,
+                  ),
                   // Date Navigation Controller
                   Container(
                     decoration: BoxDecoration(
@@ -1120,8 +1480,29 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
                     ),
                   ),
                 ],
-              ),
-            ],
+              );
+
+              if (isStacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    titleWidget,
+                    const SizedBox(height: 12),
+                    actionsWidget,
+                  ],
+                );
+              }
+
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: titleWidget),
+                  const SizedBox(width: 16),
+                  actionsWidget,
+                ],
+              );
+            },
           ),
           const SizedBox(height: 16),
 
@@ -1134,79 +1515,72 @@ class _IncidentsViewState extends ConsumerState<IncidentsView> {
               crossAxisAlignment: WrapCrossAlignment.center,
               alignment: WrapAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceSubtle,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Text(
-                        '${filteredIncidents.length} incident reports',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    // Work Area Sector Selector
-                    Container(
-                      height: 36,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: workAreas.any((a) => a.workareaId == _selectedWorkAreaId) || _selectedWorkAreaId == 'all'
-                              ? _selectedWorkAreaId
-                              : 'all',
-                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppColors.textSecondary),
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                          items: [
-                            DropdownMenuItem(
-                              value: 'all',
-                              child: Text(currentUser.role == UserRole.supervisor ? 'All Assigned Sectors' : 'All Ormoc Sectors'),
-                            ),
-                            ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name))),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) setState(() => _selectedWorkAreaId = val);
-                          },
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceSubtle,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    '${filteredIncidents.length} incident reports',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  ),
+                ),
+                // Work Area Sector Selector
+                Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: workAreas.any((a) => a.workareaId == _selectedWorkAreaId) || _selectedWorkAreaId == 'all'
+                          ? _selectedWorkAreaId
+                          : 'all',
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppColors.textSecondary),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'all',
+                          child: Text(currentUser.role == UserRole.supervisor ? 'All Assigned Sectors' : 'All Ormoc Sectors'),
                         ),
-                      ),
+                        ...workAreas.map((a) => DropdownMenuItem(value: a.workareaId, child: Text(a.name))),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _selectedWorkAreaId = val);
+                      },
                     ),
-                    const SizedBox(width: 10),
-                    // Sort Dropdown
-                    Container(
-                      height: 36,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _sortBy,
-                          icon: const Icon(Icons.sort_rounded, size: 18, color: AppColors.textSecondary),
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                          items: const [
-                            DropdownMenuItem(value: 'newest', child: Text('Sort: Newest First')),
-                            DropdownMenuItem(value: 'oldest', child: Text('Sort: Oldest First')),
-                            DropdownMenuItem(value: 'pending_first', child: Text('Sort: Pending Review First')),
-                            DropdownMenuItem(value: 'worker', child: Text('Sort: Worker Name (A–Z)')),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) setState(() => _sortBy = val);
-                          },
-                        ),
-                      ),
+                  ),
+                ),
+                // Sort Dropdown
+                Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: _sortBy,
+                      icon: const Icon(Icons.sort_rounded, size: 18, color: AppColors.textSecondary),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                      items: const [
+                        DropdownMenuItem(value: 'newest', child: Text('Sort: Newest First')),
+                        DropdownMenuItem(value: 'oldest', child: Text('Sort: Oldest First')),
+                        DropdownMenuItem(value: 'pending_first', child: Text('Sort: Pending Review First')),
+                        DropdownMenuItem(value: 'worker', child: Text('Sort: Worker Name (A–Z)')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _sortBy = val);
+                      },
                     ),
-                  ],
+                  ),
                 ),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,

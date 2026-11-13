@@ -1,10 +1,16 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/constants/auth_config.dart';
+import '../../core/utils/webauthn_helper.dart';
 import '../../core/widgets/app_button.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/toast_notification.dart';
+import '../../data/models/passkey_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
 import '../../data/repositories/mock_repository.dart';
@@ -19,6 +25,7 @@ enum RecoveryStep {
   enterEmail,
   verifyOtp,
   setPassword,
+  enrollBiometrics,
 }
 
 class LoginView extends ConsumerStatefulWidget {
@@ -49,18 +56,48 @@ class _LoginViewState extends ConsumerState<LoginView> {
   bool _obscureConfirmPassword = true;
   bool _showOtp = false;
   bool _isLoading = false;
+  bool _isBiometricSupported = false;
+  bool _isEnrollingBiometric = false;
 
   UserModel? _pendingUser;
+  Timer? _cooldownTimer;
+  int _cooldownSeconds = 0;
+
+  void _startCooldown([int seconds = 60]) {
+    _cooldownTimer?.cancel();
+    if (mounted) setState(() => _cooldownSeconds = seconds);
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_cooldownSeconds <= 1) {
+        timer.cancel();
+        setState(() => _cooldownSeconds = 0);
+      } else {
+        setState(() => _cooldownSeconds--);
+      }
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _newPasswordController.addListener(() => setState(() {}));
     _confirmPasswordController.addListener(() => setState(() {}));
+    _checkBiometrics();
+  }
+
+  void _checkBiometrics() async {
+    final avail = await WebAuthnHelper.isPlatformBiometricAvailable();
+    if (mounted) {
+      setState(() => _isBiometricSupported = avail);
+    }
   }
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _usernameController.dispose();
     _passwordController.dispose();
     _otpController.dispose();
@@ -110,9 +147,80 @@ class _LoginViewState extends ConsumerState<LoginView> {
     return AppColors.accentEmerald;
   }
 
-  bool _isSecretAdminDemo(String input) {
-    final clean = input.trim().toLowerCase();
-    return clean == 'markkevincanonoy99@gmail.com' || clean == 'admin';
+  bool _isSecretAdminDemo(String input) => AuthConfig.isDemoAccount(input);
+
+  // ==========================================
+  // Quick Biometric (Passkey / WebAuthn) Login Flow
+  // ==========================================
+  void _handleQuickBiometricLogin() async {
+    setState(() => _isLoading = true);
+    try {
+      final randomBytes = List<int>.generate(32, (_) => Random.secure().nextInt(256));
+      final challenge = base64UrlEncode(randomBytes);
+
+      final authResult = await WebAuthnHelper.authenticateBiometric(
+        challengeBase64: challenge,
+      );
+
+      if (!authResult.success) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: authResult.error ?? 'Biometric verification cancelled.',
+            type: ToastType.info,
+          );
+        }
+        return;
+      }
+
+      final credId = authResult.credentialId;
+      if (credId == null || credId.isEmpty) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'No credential returned from biometric sensor.',
+            type: ToastType.error,
+          );
+        }
+        return;
+      }
+
+      final repo = ref.read(dataRepositoryProvider);
+      final user = await repo.findUserByPasskeyCredential(credId);
+
+      if (user == null) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'Biometric recognized, but no account is registered to this device yet. Please log in with your email and password first.',
+            type: ToastType.warning,
+          );
+        }
+        return;
+      }
+
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Biometrics verified! Welcome back, ${user.fullName}.',
+          type: ToastType.success,
+        );
+      }
+
+      await _completeLogin(user.username, isDemo: false);
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Biometric sign-in error: $e',
+          type: ToastType.error,
+        );
+      }
+    }
   }
 
   // ==========================================
@@ -149,28 +257,43 @@ class _LoginViewState extends ConsumerState<LoginView> {
 
     // --- STEP 2: VERIFY OTP ---
     if (_showOtp) {
-      final otpCode = _otpController.text.trim().replaceAll(RegExp(r'\s+'), '');
-      if (otpCode.isEmpty) {
+      final otpCode = _otpController.text.trim().replaceAll(RegExp(r'[\s\-]+'), '');
+      if (otpCode.isEmpty ||
+          ((otpCode.length < 6 || otpCode.length > 10) &&
+              !(isMock && (otpCode == '123456' || otpCode == '000000' || otpCode == '12345678')))) {
         setState(() => _isLoading = false);
         ToastNotification.show(
           context,
-          message: 'Please enter the verification code.',
+          message: 'Enter verification code.',
           type: ToastType.error,
         );
         return;
       }
 
-      if (isSecretAdminDemo || (isMock && (otpCode == '123456' || otpCode == '000000'))) {
+      if (isSecretAdminDemo || (isMock && (otpCode == '123456' || otpCode == '000000' || otpCode == '12345678'))) {
         await _completeLogin(cleanInput, isDemo: isSecretAdminDemo);
         return;
       }
 
       try {
-        final res = await Supabase.instance.client.auth.verifyOTP(
-          type: OtpType.email,
-          token: otpCode,
-          email: _lastSentEmail,
-        );
+        AuthResponse res;
+        try {
+          res = await Supabase.instance.client.auth.verifyOTP(
+            type: OtpType.email,
+            token: otpCode,
+            email: _lastSentEmail,
+          );
+        } on AuthException {
+          try {
+            res = await Supabase.instance.client.auth.verifyOTP(
+              type: OtpType.recovery,
+              token: otpCode,
+              email: _lastSentEmail,
+            );
+          } catch (_) {
+            rethrow;
+          }
+        }
 
         if (res.session == null && res.user == null) {
           if (!mounted) return;
@@ -185,7 +308,13 @@ class _LoginViewState extends ConsumerState<LoginView> {
       } on AuthException catch (e) {
         setState(() => _isLoading = false);
         if (mounted) {
-          ToastNotification.show(context, message: e.message, type: ToastType.error);
+          final errLower = e.message.toLowerCase();
+          final msg = errLower.contains('expired')
+              ? 'Verification code expired. Please click "Resend code".'
+              : (errLower.contains('invalid')
+                  ? 'Invalid verification code. Please check your email or click "Resend code".'
+                  : e.message);
+          ToastNotification.show(context, message: msg, type: ToastType.error);
         }
         return;
       } catch (e) {
@@ -224,7 +353,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
 
       final foundUser = matched.first;
 
-      // Check if account is still pending activation
+      // 1. Check if account is still pending activation
       if (foundUser.status == 'pending' && foundUser.role == UserRole.supervisor) {
         setState(() => _isLoading = false);
         if (mounted) {
@@ -237,33 +366,101 @@ class _LoginViewState extends ConsumerState<LoginView> {
         return;
       }
 
-      // Secret Admin Test Account: Skip sending OTP completely!
+      // 2. Check if account is suspended / inactive
+      if (foundUser.status == 'inactive' || foundUser.status == 'suspended') {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'This account has been deactivated. Please contact the administrator.',
+            type: ToastType.error,
+          );
+        }
+        return;
+      }
+
+      // 3. Modular Demo Account Bypass (markkevincanonoy99@gmail.com):
       if (isSecretAdminDemo) {
         await _completeLogin(cleanInput, isDemo: true);
         return;
       }
 
-      // Real Account: Enforce Multi-Factor Authentication via Real OTP (SRS FR-01)
+      // 4. FACTOR 1: Primary Password Verification via Supabase Auth
+      final targetAuthEmail = foundUser.username.contains('@') ? foundUser.username : cleanInput;
+      if (repo is! MockRepository) {
+        try {
+          await Supabase.instance.client.auth.signInWithPassword(
+            email: targetAuthEmail,
+            password: inputPassword,
+          );
+        } on AuthException catch (authErr) {
+          setState(() => _isLoading = false);
+          if (mounted) {
+            final errLower = authErr.message.toLowerCase();
+            final msg = (errLower.contains('invalid') || errLower.contains('credentials'))
+                ? 'Incorrect password. Please verify your credentials or click "Forgot Password?".'
+                : (errLower.contains('email not confirmed')
+                    ? 'Account email is not confirmed. Please activate your account first.'
+                    : authErr.message);
+            ToastNotification.show(
+              context,
+              message: msg,
+              type: ToastType.error,
+            );
+          }
+          return;
+        } catch (err) {
+          setState(() => _isLoading = false);
+          if (mounted) {
+            ToastNotification.show(
+              context,
+              message: 'Authentication error: $err',
+              type: ToastType.error,
+            );
+          }
+          return;
+        }
+      } else {
+        // MockRepository behavior for unit testing
+        if (inputPassword == 'wrong_password') {
+          setState(() => _isLoading = false);
+          if (mounted) {
+            ToastNotification.show(
+              context,
+              message: 'Incorrect password. Please verify your credentials or click "Forgot Password?".',
+              type: ToastType.error,
+            );
+          }
+          return;
+        }
+      }
+
+      // 5. FACTOR 2: Enforce Multi-Factor Authentication via Real OTP (SRS FR-01)
       try {
-        await Supabase.instance.client.auth.signInWithOtp(email: cleanInput);
+        await Supabase.instance.client.auth.signInWithOtp(email: targetAuthEmail);
+        _startCooldown(60);
         setState(() {
           _isLoading = false;
           _showOtp = true;
-          _lastSentEmail = cleanInput;
+          _lastSentEmail = targetAuthEmail;
         });
         if (mounted) {
           ToastNotification.show(
             context,
-            message: 'Verification code sent to $cleanInput. Please check your inbox and spam folder.',
+            message: 'Password verified! A verification code was sent to $targetAuthEmail.',
             type: ToastType.success,
           );
         }
       } on AuthException catch (authErr) {
         setState(() => _isLoading = false);
         if (mounted) {
+          final errLower = authErr.message.toLowerCase();
+          final msg = (errLower.contains('rate') || errLower.contains('second') || errLower.contains('frequency'))
+              ? 'For security, please wait a minute before requesting another verification code.'
+              : 'Could not send verification code: ${authErr.message}';
           ToastNotification.show(
             context,
-            message: 'Could not send verification code: ${authErr.message}',
+            message: msg,
             type: ToastType.error,
           );
         }
@@ -300,6 +497,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
 
     setState(() => _isLoading = false);
     ref.read(currentUserProvider.notifier).state = loggedInUser;
+    if (loggedInUser.role == UserRole.admin) {
+      ref.read(lastActiveAdminProvider.notifier).state = loggedInUser;
+    }
     ref.read(activeNavProvider.notifier).state = 'dashboard';
 
     if (mounted) {
@@ -311,26 +511,56 @@ class _LoginViewState extends ConsumerState<LoginView> {
   }
 
   void _resendOtp() async {
+    if (_cooldownSeconds > 0) {
+      ToastNotification.show(
+        context,
+        message: 'Please wait ${_cooldownSeconds}s before requesting a new code.',
+        type: ToastType.info,
+      );
+      return;
+    }
+
     final inputUser = _lastSentEmail.isNotEmpty ? _lastSentEmail : _usernameController.text.trim();
     if (inputUser.isEmpty) return;
 
     if (_isSecretAdminDemo(inputUser)) {
       ToastNotification.show(
         context,
-        message: 'Admin Test Account recognized: OTP skipped.',
+        message: 'Demo Account recognized: OTP skipped.',
         type: ToastType.success,
       );
       return;
     }
 
+    if (ref.read(dataRepositoryProvider) is MockRepository) {
+      _startCooldown(60);
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Verification code resent to $inputUser (Test mode).',
+          type: ToastType.info,
+        );
+      }
+      return;
+    }
+
     try {
       await Supabase.instance.client.auth.signInWithOtp(email: inputUser);
+      _startCooldown(60);
       if (mounted) {
-        ToastNotification.show(context, message: 'Verification code resent to $inputUser. Please check your inbox and spam folder.', type: ToastType.success);
+        ToastNotification.show(
+          context,
+          message: 'Verification code resent to $inputUser. Please check your inbox and spam folder.',
+          type: ToastType.success,
+        );
       }
     } on AuthException catch (authErr) {
       if (mounted) {
-        ToastNotification.show(context, message: 'Could not send verification code: ${authErr.message}', type: ToastType.error);
+        final errLower = authErr.message.toLowerCase();
+        final msg = (errLower.contains('rate') || errLower.contains('second') || errLower.contains('frequency'))
+            ? 'For security, please wait a minute before requesting another verification code.'
+            : 'Could not send verification code: ${authErr.message}';
+        ToastNotification.show(context, message: msg, type: ToastType.error);
       }
     } catch (e) {
       if (mounted) {
@@ -375,27 +605,55 @@ class _LoginViewState extends ConsumerState<LoginView> {
       final user = matched.first;
       _pendingUser = user;
 
+      // Status check
+      if (user.status == 'inactive' || user.status == 'suspended') {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'Your account is currently inactive. Please contact Central Admin.',
+            type: ToastType.error,
+          );
+        }
+        return;
+      }
+
+      // Role check
+      if (user.role != UserRole.supervisor && user.role != UserRole.admin) {
+        setState(() => _isLoading = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'Field Workers authenticate via ID QR badge scan on mobile (SRS UC-14). Web portal access is for Supervisors and Admins.',
+            type: ToastType.warning,
+          );
+        }
+        return;
+      }
+
       // Mode-specific guards
       if (_viewMode == AuthViewMode.firstTimeSetup) {
-        if (user.role != UserRole.supervisor && user.role != UserRole.admin) {
-          setState(() => _isLoading = false);
-          if (mounted) {
-            ToastNotification.show(
-              context,
-              message: 'Field Workers log in via ID QR badge scan on mobile (SRS UC-14). Web activation is for Supervisors and Admins.',
-              type: ToastType.warning,
-            );
-          }
-          return;
-        }
-
         if (user.status == 'active') {
           setState(() => _isLoading = false);
           if (mounted) {
             ToastNotification.show(
               context,
-              message: 'Account is already activated! Please log in or click "Forgot Password" to reset your credentials.',
+              message: 'Account is already activated! Please log in, or click "Forgot Password?" to reset your credentials.',
               type: ToastType.info,
+            );
+          }
+          return;
+        }
+      }
+
+      if (_viewMode == AuthViewMode.forgotPassword) {
+        if (user.status == 'pending') {
+          setState(() => _isLoading = false);
+          if (mounted) {
+            ToastNotification.show(
+              context,
+              message: 'This supervisor account has not been activated yet. Please click "First-Time Supervisor? Activate Account".',
+              type: ToastType.warning,
             );
           }
           return;
@@ -412,17 +670,17 @@ class _LoginViewState extends ConsumerState<LoginView> {
         if (mounted) {
           ToastNotification.show(
             context,
-            message: 'Admin Test Account recognized: OTP skipped.',
+            message: 'Demo Account recognized: OTP skipped.',
             type: ToastType.success,
           );
         }
         return;
       }
 
-      // FOR ALL OTHER ACCOUNTS (SUPERVISOR ACTIVATION, ETC.):
-      // DO NOT SKIP! Send real OTP via Supabase Auth
+      // FOR ALL OTHER ACCOUNTS (SUPERVISOR ACTIVATION & FORGOT PASSWORD):
       try {
         await Supabase.instance.client.auth.signInWithOtp(email: email);
+        _startCooldown(60);
         setState(() {
           _isLoading = false;
           _recoveryStep = RecoveryStep.verifyOtp;
@@ -431,22 +689,23 @@ class _LoginViewState extends ConsumerState<LoginView> {
         if (mounted) {
           ToastNotification.show(
             context,
-            message: 'A 6-digit verification code has been dispatched to $email. Please check your inbox and spam folder.',
+            message: 'A verification code has been dispatched to $email. Please check your inbox and spam folder.',
             type: ToastType.success,
           );
         }
       } on AuthException catch (authErr) {
         setState(() => _isLoading = false);
         if (mounted) {
-          ToastNotification.show(
-            context,
-            message: 'Could not send verification code: ${authErr.message}',
-            type: ToastType.error,
-          );
+          final errLower = authErr.message.toLowerCase();
+          final msg = (errLower.contains('rate') || errLower.contains('second') || errLower.contains('frequency'))
+              ? 'For security, please wait a minute before requesting another verification code.'
+              : 'Could not send verification code: ${authErr.message}';
+          ToastNotification.show(context, message: msg, type: ToastType.error);
         }
       } catch (err) {
         // Fallback for mock test environments where Supabase is not initialized
         if (ref.read(dataRepositoryProvider) is MockRepository) {
+          _startCooldown(60);
           setState(() {
             _isLoading = false;
             _recoveryStep = RecoveryStep.verifyOtp;
@@ -478,19 +737,96 @@ class _LoginViewState extends ConsumerState<LoginView> {
     }
   }
 
+  void _resendRecoveryOtp() async {
+    if (_cooldownSeconds > 0) {
+      ToastNotification.show(
+        context,
+        message: 'Please wait ${_cooldownSeconds}s before requesting a new code.',
+        type: ToastType.info,
+      );
+      return;
+    }
+
+    final targetEmail = _lastSentEmail.isNotEmpty
+        ? _lastSentEmail
+        : _recoveryEmailController.text.trim().toLowerCase();
+
+    if (targetEmail.isEmpty) {
+      ToastNotification.show(
+        context,
+        message: 'Please enter your registered email address first.',
+        type: ToastType.error,
+      );
+      return;
+    }
+
+    if (_isSecretAdminDemo(targetEmail)) {
+      ToastNotification.show(
+        context,
+        message: 'Demo Account recognized: OTP skipped.',
+        type: ToastType.success,
+      );
+      return;
+    }
+
+    if (ref.read(dataRepositoryProvider) is MockRepository) {
+      _startCooldown(60);
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'A fresh verification code was sent to $targetEmail (Test mode).',
+          type: ToastType.info,
+        );
+      }
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await Supabase.instance.client.auth.signInWithOtp(email: targetEmail);
+      _startCooldown(60);
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'A fresh verification code was sent to $targetEmail. Please check your inbox and spam folder.',
+          type: ToastType.success,
+        );
+      }
+    } on AuthException catch (authErr) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        final errLower = authErr.message.toLowerCase();
+        final msg = (errLower.contains('rate') || errLower.contains('second') || errLower.contains('frequency'))
+            ? 'For security, please wait a minute before requesting another verification code.'
+            : 'Could not resend code: ${authErr.message}';
+        ToastNotification.show(context, message: msg, type: ToastType.error);
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ToastNotification.show(context, message: 'Could not resend code: $e', type: ToastType.error);
+      }
+    }
+  }
+
   void _handleVerifyRecoveryOtp() async {
-    final otp = _recoveryOtpController.text.trim().replaceAll(RegExp(r'\s+'), '');
-    if (otp.isEmpty) {
-      ToastNotification.show(context, message: 'Please enter the 6-digit verification code.', type: ToastType.error);
+    final otp = _recoveryOtpController.text.trim().replaceAll(RegExp(r'[\s\-]+'), '');
+    final isMockRepo = ref.read(dataRepositoryProvider) is MockRepository;
+    if (otp.isEmpty ||
+        ((otp.length < 6 || otp.length > 10) &&
+            !(isMockRepo && (otp == '123456' || otp == '000000' || otp == '12345678')))) {
+      ToastNotification.show(context, message: 'Enter verification code.', type: ToastType.error);
       return;
     }
 
     setState(() => _isLoading = true);
     final email = _lastSentEmail.toLowerCase();
-    final isMockRepo = ref.read(dataRepositoryProvider) is MockRepository;
 
     // Unit test bypass for MockRepository
-    if (isMockRepo && (otp == '123456' || otp == '000000')) {
+    if (isMockRepo && (otp == '123456' || otp == '000000' || otp == '12345678')) {
       setState(() {
         _isLoading = false;
         _recoveryStep = RecoveryStep.setPassword;
@@ -501,11 +837,24 @@ class _LoginViewState extends ConsumerState<LoginView> {
 
     // REAL OTP VERIFICATION VIA SUPABASE
     try {
-      final res = await Supabase.instance.client.auth.verifyOTP(
-        type: OtpType.email,
-        token: otp,
-        email: email,
-      );
+      AuthResponse res;
+      try {
+        res = await Supabase.instance.client.auth.verifyOTP(
+          type: OtpType.email,
+          token: otp,
+          email: email,
+        );
+      } on AuthException {
+        try {
+          res = await Supabase.instance.client.auth.verifyOTP(
+            type: OtpType.recovery,
+            token: otp,
+            email: email,
+          );
+        } catch (_) {
+          rethrow;
+        }
+      }
 
       if (res.session == null && res.user == null) {
         setState(() => _isLoading = false);
@@ -525,7 +874,13 @@ class _LoginViewState extends ConsumerState<LoginView> {
     } on AuthException catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ToastNotification.show(context, message: e.message, type: ToastType.error);
+        final errLower = e.message.toLowerCase();
+        final msg = errLower.contains('expired')
+            ? 'Verification code expired. Please click "Resend code".'
+            : (errLower.contains('invalid')
+                ? 'Invalid verification code. Please verify the passcode in your email.'
+                : e.message);
+        ToastNotification.show(context, message: msg, type: ToastType.error);
       }
     } catch (e) {
       setState(() => _isLoading = false);
@@ -551,14 +906,30 @@ class _LoginViewState extends ConsumerState<LoginView> {
       if (repo is! MockRepository) {
         try {
           await Supabase.instance.client.auth.updateUser(UserAttributes(password: newPass));
+        } on AuthException catch (authErr) {
+          setState(() => _isLoading = false);
+          if (mounted) {
+            ToastNotification.show(
+              context,
+              message: 'Failed to update authentication credentials: ${authErr.message}',
+              type: ToastType.error,
+            );
+          }
+          return;
         } catch (authErr) {
           debugPrint('Supabase Auth updateUser notice: $authErr');
         }
       }
 
       // 2. Mark account as 'active' in database
-      if (_pendingUser != null) {
-        await ref.read(dataRepositoryProvider).updateUserStatus(_pendingUser!.userId, 'active');
+      UserModel? targetUser = _pendingUser;
+      if (targetUser == null && _lastSentEmail.isNotEmpty) {
+        final users = await repo.getUsers();
+        final matched = users.where((u) => u.username.toLowerCase() == _lastSentEmail.toLowerCase()).toList();
+        if (matched.isNotEmpty) targetUser = matched.first;
+      }
+      if (targetUser != null) {
+        await ref.read(dataRepositoryProvider).updateUserStatus(targetUser.userId, 'active');
         ref.invalidate(employeesProvider);
         ref.invalidate(supervisorsProvider);
       }
@@ -566,9 +937,22 @@ class _LoginViewState extends ConsumerState<LoginView> {
       setState(() => _isLoading = false);
 
       final isActivation = _viewMode == AuthViewMode.firstTimeSetup;
-      final successMsg = isActivation
-          ? 'Account activated successfully! Please sign in with your new password.'
-          : 'Password reset successfully! Please sign in with your updated credentials.';
+      if (isActivation) {
+        setState(() {
+          _isLoading = false;
+          _recoveryStep = RecoveryStep.enrollBiometrics;
+        });
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: 'Password created! Now optionally set up biometric quick-login for this device.',
+            type: ToastType.success,
+          );
+        }
+        return;
+      }
+
+      final successMsg = 'Password reset successfully! Please sign in with your updated credentials.';
 
       if (mounted) {
         ToastNotification.show(context, message: successMsg, type: ToastType.success);
@@ -594,12 +978,88 @@ class _LoginViewState extends ConsumerState<LoginView> {
     }
   }
 
-  void _resetToLogin() {
+  void _handleEnrollBiometrics() async {
+    if (_pendingUser == null) {
+      _finishActivation();
+      return;
+    }
+    setState(() => _isEnrollingBiometric = true);
+
+    try {
+      final randomBytes = List<int>.generate(32, (_) => Random.secure().nextInt(256));
+      final challenge = base64UrlEncode(randomBytes);
+
+      final result = await WebAuthnHelper.registerBiometric(
+        challengeBase64: challenge,
+        userId: _pendingUser!.userId,
+        userEmail: _pendingUser!.username,
+        userDisplayName: _pendingUser!.fullName,
+      );
+
+      if (!result.success) {
+        setState(() => _isEnrollingBiometric = false);
+        if (mounted) {
+          ToastNotification.show(
+            context,
+            message: result.error ?? 'Biometric enrollment failed.',
+            type: ToastType.warning,
+          );
+        }
+        return;
+      }
+
+      final repo = ref.read(dataRepositoryProvider);
+      final newPasskey = PasskeyModel(
+        passkeyId: '',
+        userId: _pendingUser!.userId,
+        credentialId: result.credentialId!,
+        publicKey: result.publicKey,
+        deviceName: result.deviceName ?? WebAuthnHelper.getDeviceName(),
+        createdAt: DateTime.now(),
+      );
+      await repo.addPasskey(newPasskey);
+
+      if (mounted) {
+        ToastNotification.show(
+          context,
+          message: 'Biometric device registered! You can now use 1-click Quick Login on this device.',
+          type: ToastType.success,
+        );
+      }
+
+      _finishActivation();
+    } catch (e) {
+      setState(() => _isEnrollingBiometric = false);
+      if (mounted) {
+        ToastNotification.show(context, message: 'Enrollment error: $e', type: ToastType.error);
+      }
+    }
+  }
+
+  void _finishActivation() {
     setState(() {
+      _viewMode = AuthViewMode.login;
+      _recoveryStep = RecoveryStep.enterEmail;
+      _usernameController.text = _lastSentEmail;
+      _passwordController.clear();
+      _otpController.clear();
+      _newPasswordController.clear();
+      _confirmPasswordController.clear();
+      _recoveryOtpController.clear();
+      _showOtp = false;
+      _isEnrollingBiometric = false;
+    });
+  }
+
+  void _resetToLogin() {
+    _cooldownTimer?.cancel();
+    setState(() {
+      _cooldownSeconds = 0;
       _viewMode = AuthViewMode.login;
       _recoveryStep = RecoveryStep.enterEmail;
       _showOtp = false;
       _isLoading = false;
+      _isEnrollingBiometric = false;
       _recoveryEmailController.clear();
       _recoveryOtpController.clear();
       _newPasswordController.clear();
@@ -697,6 +1157,97 @@ class _LoginViewState extends ConsumerState<LoginView> {
                 // VIEW MODE: STANDARD LOGIN
                 // ==========================================
                 if (_viewMode == AuthViewMode.login) ...[
+                  // Quick Biometric Sign-In Banner
+                  if (_isBiometricSupported) ...[
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _isLoading ? null : _handleQuickBiometricLogin,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF86EFAC)),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x0A000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.accentEmerald.withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.fingerprint_rounded,
+                                  size: 24,
+                                  color: AppColors.accentEmerald,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Quick Biometric Sign-In',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF14532D),
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      '1-click fingerprint, Touch ID, or Windows Hello',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF166534),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 14,
+                                color: Color(0xFF166534),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Row(
+                      children: [
+                        Expanded(child: Divider(color: AppColors.border)),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'OR SIGN IN WITH PASSWORD + OTP',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.8,
+                              color: AppColors.textMuted,
+                            ),
+                          ),
+                        ),
+                        Expanded(child: Divider(color: AppColors.border)),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                  ],
+
                   const Text(
                     'Username or Email',
                     style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
@@ -788,7 +1339,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Enter the 6-digit verification code dispatched to $_lastSentEmail',
+                            'Enter verification code dispatched to $_lastSentEmail',
                             style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                           ),
                           const SizedBox(height: 12),
@@ -796,6 +1347,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
                             controller: _otpController,
                             keyboardType: TextInputType.number,
                             textAlign: TextAlign.center,
+                            onSubmitted: (_) => _handleLogin(),
                             style: const TextStyle(
                               fontSize: 19,
                               letterSpacing: 5,
@@ -803,10 +1355,10 @@ class _LoginViewState extends ConsumerState<LoginView> {
                               fontFamily: 'monospace',
                               color: AppColors.primaryNavy,
                             ),
-                            maxLength: 8,
+                            maxLength: 12,
                             decoration: InputDecoration(
                               counterText: '',
-                              hintText: '••••••',
+                              hintText: '••••••••',
                               hintStyle: TextStyle(
                                 letterSpacing: 5,
                                 color: AppColors.textMuted.withValues(alpha: 0.4),
@@ -833,11 +1385,32 @@ class _LoginViewState extends ConsumerState<LoginView> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               TextButton.icon(
-                                icon: const Icon(Icons.refresh, size: 14),
-                                label: const Text('Resend code', style: TextStyle(fontSize: 12)),
-                                onPressed: _resendOtp,
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                icon: Icon(
+                                  Icons.refresh,
+                                  size: 14,
+                                  color: _cooldownSeconds > 0 ? AppColors.textLight : AppColors.accentBlue,
+                                ),
+                                label: Text(
+                                  _cooldownSeconds > 0 ? 'Resend (${_cooldownSeconds}s)' : 'Resend code',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: _cooldownSeconds > 0 ? AppColors.textLight : AppColors.accentBlue,
+                                  ),
+                                ),
+                                onPressed: _cooldownSeconds > 0 ? null : _resendOtp,
                               ),
                               TextButton(
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                  minimumSize: const Size(0, 0),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
                                 onPressed: () {
                                   setState(() {
                                     _showOtp = false;
@@ -894,7 +1467,11 @@ class _LoginViewState extends ConsumerState<LoginView> {
                       _buildStepLine(_recoveryStep.index >= 1),
                       _buildStepDot(2, 'Verify', _recoveryStep == RecoveryStep.verifyOtp, _recoveryStep.index > 1),
                       _buildStepLine(_recoveryStep.index >= 2),
-                      _buildStepDot(3, 'Password', _recoveryStep == RecoveryStep.setPassword, false),
+                      _buildStepDot(3, 'Password', _recoveryStep == RecoveryStep.setPassword, _recoveryStep.index > 2),
+                      if (_viewMode == AuthViewMode.firstTimeSetup) ...[
+                        _buildStepLine(_recoveryStep.index >= 3),
+                        _buildStepDot(4, 'Biometrics', _recoveryStep == RecoveryStep.enrollBiometrics, false),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -908,6 +1485,8 @@ class _LoginViewState extends ConsumerState<LoginView> {
                     const SizedBox(height: 6),
                     TextField(
                       controller: _recoveryEmailController,
+                      keyboardType: TextInputType.emailAddress,
+                      onSubmitted: (_) => _handleSendRecoveryOtp(),
                       decoration: const InputDecoration(
                         prefixIcon: Icon(Icons.mail_outline, size: 18),
                         hintText: 'e.g. name@gmail.com',
@@ -954,7 +1533,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
                     ),
                     const SizedBox(height: 16),
                     const Text(
-                      'Enter 6-Digit Verification Code',
+                      'Enter Verification Code',
                       style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                     ),
                     const SizedBox(height: 6),
@@ -962,6 +1541,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
                       controller: _recoveryOtpController,
                       keyboardType: TextInputType.number,
                       textAlign: TextAlign.center,
+                      onSubmitted: (_) => _handleVerifyRecoveryOtp(),
                       style: const TextStyle(
                         fontSize: 19,
                         letterSpacing: 6,
@@ -969,10 +1549,10 @@ class _LoginViewState extends ConsumerState<LoginView> {
                         fontFamily: 'monospace',
                         color: AppColors.primaryNavy,
                       ),
-                      maxLength: 8,
+                      maxLength: 12,
                       decoration: InputDecoration(
                         counterText: '',
-                        hintText: '••••••',
+                        hintText: '••••••••',
                         filled: true,
                         fillColor: Colors.white,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFCBD5E1))),
@@ -989,12 +1569,38 @@ class _LoginViewState extends ConsumerState<LoginView> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         TextButton.icon(
-                          icon: const Icon(Icons.refresh, size: 14),
-                          label: const Text('Resend code', style: TextStyle(fontSize: 12)),
-                          onPressed: _handleSendRecoveryOtp,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          icon: Icon(
+                            Icons.refresh,
+                            size: 14,
+                            color: _cooldownSeconds > 0 ? AppColors.textLight : AppColors.accentBlue,
+                          ),
+                          label: Text(
+                            _cooldownSeconds > 0 ? 'Resend (${_cooldownSeconds}s)' : 'Resend code',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _cooldownSeconds > 0 ? AppColors.textLight : AppColors.accentBlue,
+                            ),
+                          ),
+                          onPressed: _cooldownSeconds > 0 ? null : _resendRecoveryOtp,
                         ),
                         TextButton(
-                          onPressed: () => setState(() => _recoveryStep = RecoveryStep.enterEmail),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _recoveryStep = RecoveryStep.enterEmail;
+                              _recoveryOtpController.clear();
+                            });
+                          },
                           child: const Text('Edit email', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
                         ),
                       ],
@@ -1122,6 +1728,70 @@ class _LoginViewState extends ConsumerState<LoginView> {
                       isLoading: _isLoading,
                       onPressed: _isPasswordValid ? _handleCompletePasswordSetup : null,
                     ),
+                  ],
+
+                  // STEP 4: Optional Biometric Registration (Supervisor Activation)
+                  if (_recoveryStep == RecoveryStep.enrollBiometrics) ...[
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFBBF7D0)),
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.accentEmerald.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.fingerprint_rounded, size: 48, color: AppColors.accentEmerald),
+                          ),
+                          const SizedBox(height: 14),
+                          const Text(
+                            'Register Biometric Quick-Login',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF14532D),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _isBiometricSupported
+                                ? 'Hardware biometric sensor detected on this device (Windows Hello / Touch ID / Fingerprint). Register now to sign in instantly with a single touch without typing your password.'
+                                : 'No platform biometric sensor detected on this computer. You can proceed with standard Password + Email OTP Multi-Factor Authentication.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF166534), height: 1.4),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    if (_isBiometricSupported) ...[
+                      AppButton(
+                        label: 'Register Fingerprint / Touch ID',
+                        icon: Icons.fingerprint,
+                        isLoading: _isEnrollingBiometric,
+                        onPressed: _handleEnrollBiometrics,
+                      ),
+                      const SizedBox(height: 12),
+                      AppButton(
+                        label: 'Skip and Go to Sign In',
+                        variant: ButtonVariant.outline,
+                        onPressed: _finishActivation,
+                      ),
+                    ] else ...[
+                      AppButton(
+                        label: 'Complete Activation & Sign In',
+                        icon: Icons.check_circle_outline,
+                        onPressed: _finishActivation,
+                      ),
+                    ],
                   ],
 
                   const SizedBox(height: 16),

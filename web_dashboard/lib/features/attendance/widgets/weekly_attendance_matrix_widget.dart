@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/models/attendance_model.dart';
 import '../../../data/models/leave_request_model.dart';
+import '../../../data/models/user_model.dart';
 import '../../../data/models/worker_schedule_sheet_model.dart';
 import '../../../data/repositories/repository_provider.dart';
 
@@ -286,17 +287,90 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = ref.watch(currentUserProvider);
+    final isSupervisor = currentUser.role == UserRole.supervisor;
+    final workAreasAsync = ref.watch(workAreasProvider);
+    final rawWorkAreas = workAreasAsync.value ?? [];
+    final supervisorAreas = isSupervisor
+        ? rawWorkAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            (currentUser.assignedAreaId != null &&
+                currentUser.assignedAreaId!.isNotEmpty &&
+                a.workareaId == currentUser.assignedAreaId) ||
+            (currentUser.assignedAreaName != null &&
+                currentUser.assignedAreaName!.isNotEmpty &&
+                currentUser.assignedAreaName != 'Unassigned' &&
+                a.name.toLowerCase() == currentUser.assignedAreaName!.toLowerCase())
+          ).toList()
+        : rawWorkAreas;
+
+    if (isSupervisor && supervisorAreas.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 36),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4, offset: const Offset(0, 2)),
+          ],
+        ),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.assignment_late_outlined, size: 40, color: AppColors.textLight),
+              SizedBox(height: 12),
+              Text(
+                'No work areas currently assigned to your supervisory oversight.',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Weekly attendance register will display your team roster once an administrator assigns a work sector to you.',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final query = ScheduleSheetsQuery(month: _sunday.month, year: _sunday.year);
     final sheetsAsync = ref.watch(scheduleSheetsProvider(query));
-    final sheets = sheetsAsync.value ?? [];
+    final rawSheets = sheetsAsync.value ?? [];
 
-    if (_selectedSheetName == null && sheets.isNotEmpty) {
-      _selectedSheetName = sheets.first.sheetName;
+    final sheets = isSupervisor
+        ? rawSheets.map((s) {
+            final scopedEntries = s.entries.where((e) =>
+                supervisorAreas.any((a) =>
+                    a.workareaId == e.assignedAreaId ||
+                    (e.assignedAreaName.isNotEmpty &&
+                        a.name.toLowerCase() == e.assignedAreaName.toLowerCase()))
+            ).toList();
+            return s.copyWith(entries: scopedEntries);
+          }).where((s) => s.entries.isNotEmpty).toList()
+        : rawSheets;
+
+    if (_selectedSheetName == null || !sheets.any((s) => s.sheetName == _selectedSheetName)) {
+      _selectedSheetName = sheets.isNotEmpty ? sheets.first.sheetName : null;
     }
 
     final activeSheet = sheets.firstWhere(
       (s) => s.sheetName == _selectedSheetName,
-      orElse: () => sheets.isNotEmpty ? sheets.first : ScheduleSheetModel(sheetId: '', sheetName: 'Street Cleaners', month: _sunday.month, year: _sunday.year, entries: []),
+      orElse: () => sheets.isNotEmpty
+          ? sheets.first
+          : ScheduleSheetModel(
+              sheetId: '',
+              sheetName: isSupervisor ? 'Assigned Team' : 'Street Cleaners',
+              month: _sunday.month,
+              year: _sunday.year,
+              entries: [],
+            ),
     );
 
     // Retrieve attendance logs and approved leaves for the week
@@ -457,13 +531,19 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                         const Icon(Icons.event_note_outlined, size: 36, color: AppColors.textMuted),
                         const SizedBox(height: 8),
                         Text(
-                          'No active workers found in schedule sheet "${activeSheet.sheetName}" for ${DateFormat('MMMM yyyy').format(_sunday)}.',
+                          isSupervisor
+                              ? 'No active workers found in schedule sheets for your assigned sector(s) for ${DateFormat('MMMM yyyy').format(_sunday)}.'
+                              : 'No active workers found in schedule sheet "${activeSheet.sheetName}" for ${DateFormat('MMMM yyyy').format(_sunday)}.',
                           style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
+                          textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          'Open "Manage Worker Schedules" above to assign personnel following the monthly raffle draw.',
-                          style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                        Text(
+                          isSupervisor
+                              ? 'Workers assigned to your sector will appear here once schedules are confirmed by the administrator.'
+                              : 'Open "Manage Worker Schedules" above to assign personnel following the monthly raffle draw.',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),

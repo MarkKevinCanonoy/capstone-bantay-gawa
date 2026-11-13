@@ -4,6 +4,8 @@ import '../theme/app_colors.dart';
 import 'app_logo.dart';
 import 'app_button.dart';
 import 'confirmation_dialog.dart';
+import 'user_avatar.dart';
+import '../../data/models/user_model.dart';
 import '../../data/repositories/repository_provider.dart';
 
 class AppSidebar extends ConsumerWidget {
@@ -105,10 +107,46 @@ class AppSidebar extends ConsumerWidget {
     final leaveRequestsAsync = ref.watch(leaveRequestsProvider);
     final alertsAsync = ref.watch(alertsProvider);
     final accomplishmentsAsync = ref.watch(accomplishmentsProvider);
+    final workAreasAsync = ref.watch(workAreasProvider);
 
-    final pendingLeaves = leaveRequestsAsync.value?.where((l) => l.status == 'pending').length ?? 0;
-    final criticalAlerts = alertsAsync.value?.where((a) => a.severity == 'critical' && !a.isResolved).length ?? 0;
-    final pendingAccomplishments = accomplishmentsAsync.value?.where((a) => a.status.toLowerCase() == 'pending').length ?? 0;
+    final isSupervisor = currentUser.role == UserRole.supervisor;
+    final rawAreas = workAreasAsync.value ?? [];
+    final supervisorAreas = isSupervisor
+        ? rawAreas.where((a) =>
+            a.supervisorId == currentUser.userId ||
+            (a.supervisorName.isNotEmpty &&
+                a.supervisorName.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+            a.workareaId == currentUser.assignedAreaId ||
+            a.name == currentUser.assignedAreaName).toList()
+        : rawAreas;
+
+    final pendingLeaves = leaveRequestsAsync.value?.where((l) {
+      if (l.status != 'pending') return false;
+      if (!isSupervisor) return true;
+      return supervisorAreas.any((a) =>
+          (l.workareaId != null && l.workareaId == a.workareaId) ||
+          a.name.toLowerCase() == l.areaName.toLowerCase());
+    }).length ?? 0;
+
+    final criticalAlerts = alertsAsync.value?.where((a) {
+      if (a.severity != 'critical' || a.isResolved) return false;
+      if (!isSupervisor) return true;
+      return a.supervisorId == currentUser.userId ||
+          (a.supervisorName != null &&
+              a.supervisorName!.toLowerCase() == currentUser.fullName.toLowerCase()) ||
+          supervisorAreas.any((area) =>
+              (a.workareaId != null && a.workareaId == area.workareaId) ||
+              (a.workareaName != null &&
+                  area.name.toLowerCase() == a.workareaName!.toLowerCase()));
+    }).length ?? 0;
+
+    final pendingAccomplishments = accomplishmentsAsync.value?.where((a) {
+      if (a.status.toLowerCase() != 'pending') return false;
+      if (!isSupervisor) return true;
+      return supervisorAreas.any((area) =>
+          area.workareaId == a.workareaId ||
+          area.name.toLowerCase() == a.areaName.toLowerCase());
+    }).length ?? 0;
 
     return Container(
       width: 270,
@@ -257,14 +295,13 @@ class AppSidebar extends ConsumerWidget {
               ),
               child: Row(
                 children: [
-                  CircleAvatar(
+                  UserAvatar(
+                    photoUrl: currentUser.photoUrl,
+                    initials: currentUser.initials,
                     radius: 18,
+                    fontSize: 12,
                     backgroundColor: AppColors.primaryNavy,
-                    child: Text(
-                    currentUser.initials,
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                   ),
-                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(

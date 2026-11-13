@@ -11,13 +11,14 @@ CREATE TABLE roles (
 -- Users Table
 CREATE TABLE users (
     user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username VARCHAR(50) NOT NULL UNIQUE,
+    username VARCHAR(255) NOT NULL UNIQUE,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
-    contact_number VARCHAR(20),
+    contact_number VARCHAR(50),
     qr_token VARCHAR(100) UNIQUE,
     role_id UUID NOT NULL REFERENCES roles(role_id),
     face_embedding TEXT,
+    photo_url TEXT,
     status VARCHAR(20) DEFAULT 'active', -- 'active', 'inactive', 'pending'
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
@@ -175,3 +176,29 @@ CREATE TABLE audit_logs (
     new_values JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+-- WebAuthn / Passkeys for Biometric Quick-Login (Web Dashboard)
+CREATE TABLE user_passkeys (
+    passkey_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    credential_id TEXT NOT NULL UNIQUE,
+    public_key TEXT,
+    device_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    last_used_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Trigger to automatically mark newly created auth users as confirmed so signInWithOtp immediately dispatches 6-digit numeric OTPs
+CREATE OR REPLACE FUNCTION public.auto_confirm_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.email_confirmed_at := COALESCE(NEW.email_confirmed_at, NOW());
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trigger_auto_confirm_new_user ON auth.users;
+CREATE TRIGGER trigger_auto_confirm_new_user
+BEFORE INSERT ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION public.auto_confirm_new_user();
