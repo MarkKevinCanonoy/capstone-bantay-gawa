@@ -6,8 +6,11 @@ import '../../../core/widgets/status_badge.dart';
 import '../../../core/widgets/toast_notification.dart';
 import '../../../core/widgets/confirmation_dialog.dart';
 import '../../../core/widgets/user_avatar.dart';
+import 'package:intl/intl.dart';
 import '../../../data/models/user_model.dart';
 import '../../../data/models/work_area_model.dart';
+import '../../../data/models/time_preset_model.dart';
+import '../../../data/models/worker_schedule_sheet_model.dart';
 import '../../../data/repositories/repository_provider.dart';
 
 enum WorkerSortOption {
@@ -159,85 +162,190 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
     await _loadWorkers();
   }
 
-  Widget _buildShiftBadge(String schedule) {
-    String label = schedule;
-    IconData icon = Icons.schedule_rounded;
-    Color color = AppColors.textSecondary;
-    Color bg = AppColors.surfaceSubtle;
+  static const List<String> _weekdays = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
 
-    if (schedule.contains('06:00') || schedule.contains('11:00') || schedule.toLowerCase().contains('am')) {
-      label = 'AM (06:00 - 11:00)';
-      icon = Icons.wb_sunny_outlined;
-      color = const Color(0xFFD97706);
-      bg = const Color(0xFFFEF3C7);
-    } else if (schedule.contains('13:00') || (schedule.contains('17:00') && schedule.contains('13'))) {
-      label = 'PM (13:00 - 17:00)';
-      icon = Icons.wb_twilight_outlined;
-      color = const Color(0xFF7C3AED);
-      bg = const Color(0xFFEDE9FE);
-    } else if (schedule.contains('08:00') && schedule.contains('17:00')) {
-      label = 'Full (08:00 - 17:00)';
-      icon = Icons.apartment_outlined;
-      color = AppColors.accentBlue;
-      bg = AppColors.accentBlue.withValues(alpha: 0.1);
-    } else if (schedule == 'Unassigned') {
-      label = 'No Shift';
-      icon = Icons.schedule_outlined;
-      color = AppColors.textMuted;
-      bg = AppColors.surfaceSubtle;
+  static String _formatTo12Hour(String timeStr) {
+    if (timeStr.isEmpty || timeStr == 'Unassigned') return '08:00 AM';
+    final clean = timeStr.trim();
+    final match = RegExp(r'(\d{1,2}):(\d{2})\s*([AaPp][Mm])?', caseSensitive: false).firstMatch(clean);
+    if (match != null) {
+      int hour = int.tryParse(match.group(1)!) ?? 8;
+      final minute = int.tryParse(match.group(2)!) ?? 0;
+      final ampm = match.group(3);
+      if (ampm != null && ampm.isNotEmpty) {
+        return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} ${ampm.toUpperCase()}';
+      }
+      final period = hour >= 12 ? 'PM' : 'AM';
+      if (hour > 12) hour -= 12;
+      if (hour == 0) hour = 12;
+      return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
+    }
+    return clean;
+  }
+
+  static String _formatSchedule12Hour(String schedule) {
+    if (schedule.isEmpty || schedule == 'Unassigned') return '08:00 AM – 05:00 PM';
+
+    // Find all time patterns (e.g., "06:00 AM", "6:00", "03:00 PM", "15:00")
+    final matches = RegExp(r'(\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?)').allMatches(schedule).toList();
+    if (matches.length >= 2) {
+      final t1 = _formatTo12Hour(matches[0].group(1)!);
+      final t2 = _formatTo12Hour(matches[1].group(1)!);
+      return '$t1 – $t2';
+    } else if (matches.length == 1) {
+      final t1 = _formatTo12Hour(matches[0].group(1)!);
+      return t1;
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 11, color: color),
-          const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color)),
-        ],
-      ),
+    return '08:00 AM – 05:00 PM';
+  }
+
+  Widget _buildWorkerDaySchedule(UserModel worker, List<ScheduleSheetModel> sheets) {
+    final dayLetters = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    final dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    final activeDays = <int>{0, 1, 2, 3, 4, 5, 6};
+
+    // 1. Look for worker entry in active monthly schedule sheets
+    ScheduleEntryModel? matchedEntry;
+    for (final sheet in sheets) {
+      final entry = sheet.entries.where((e) => e.userId == worker.userId).firstOrNull;
+      if (entry != null) {
+        matchedEntry = entry;
+        break;
+      }
+    }
+
+    String effectiveTimeSchedule = worker.schedule;
+    String? dayOffInfo;
+
+    if (matchedEntry != null) {
+      if (matchedEntry.timeSchedule.isNotEmpty && matchedEntry.timeSchedule != 'Unassigned') {
+        effectiveTimeSchedule = matchedEntry.timeSchedule;
+      }
+      dayOffInfo = matchedEntry.dayOff;
+    } else {
+      // Fallback: check if worker.schedule contains "Off: <days>"
+      final offMatch = RegExp(r'Off:\s*([^0-9\-–—]+)', caseSensitive: false).firstMatch(worker.schedule);
+      if (offMatch != null) {
+        dayOffInfo = offMatch.group(1);
+      }
+    }
+
+    if (dayOffInfo != null && dayOffInfo.isNotEmpty && dayOffInfo.toLowerCase() != 'none') {
+      final offLower = dayOffInfo.toLowerCase();
+      final restDays = <int>{};
+      for (int i = 0; i < dayNames.length; i++) {
+        final dName = dayNames[i].toLowerCase();
+        final dAbbr = dName.substring(0, 3);
+        if (offLower.contains(dName) || offLower.contains(dAbbr)) {
+          restDays.add(i);
+        }
+      }
+      activeDays.clear();
+      for (int i = 0; i < 7; i++) {
+        if (!restDays.contains(i)) {
+          activeDays.add(i);
+        }
+      }
+    } else {
+      final raw = worker.schedule.toLowerCase();
+      if (raw.contains('mon-fri') || raw.contains('mon to fri')) {
+        activeDays.clear();
+        activeDays.addAll([1, 2, 3, 4, 5]);
+      } else if (raw.contains('mon-sat') || raw.contains('mon to sat')) {
+        activeDays.clear();
+        activeDays.addAll([1, 2, 3, 4, 5, 6]);
+      } else if (raw.contains('daily') || raw.contains('everyday')) {
+        activeDays.clear();
+        activeDays.addAll([0, 1, 2, 3, 4, 5, 6]);
+      } else {
+        // Default standard working days: Mon to Fri
+        activeDays.clear();
+        activeDays.addAll([1, 2, 3, 4, 5]);
+      }
+    }
+
+    final time12 = _formatSchedule12Hour(effectiveTimeSchedule);
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 2,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(7, (i) {
+            final isWorking = activeDays.contains(i);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 1.0),
+              child: Text(
+                dayLetters[i],
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: isWorking ? FontWeight.w800 : FontWeight.w500,
+                  color: isWorking ? Colors.black87 : const Color(0xFFBDBDBD),
+                ),
+              ),
+            );
+          }),
+        ),
+        Text(
+          time12,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+        ),
+      ],
     );
   }
 
   void _showEditShiftDialog(UserModel worker) {
-    String selectedPreset = 'AM';
-    String startTime = '06:00';
-    String endTime = '11:00';
-    String selectedDays = 'Mon-Fri';
-    bool isCustom = false;
+    TimeOfDay startTime = const TimeOfDay(hour: 6, minute: 0);
+    TimeOfDay endTime = const TimeOfDay(hour: 11, minute: 0);
+    Set<String> selectedDayOffs = {'Saturday', 'Sunday'};
     bool isSaving = false;
 
-    if (worker.schedule.contains('13:00') || (worker.schedule.contains('17:00') && worker.schedule.contains('13'))) {
-      selectedPreset = 'PM';
-      startTime = '13:00';
-      endTime = '17:00';
-    } else if (worker.schedule.contains('08:00') && worker.schedule.contains('17:00')) {
-      selectedPreset = 'Full';
-      startTime = '08:00';
-      endTime = '17:00';
-    } else if (worker.schedule.contains('06:00') || worker.schedule.contains('11:00')) {
-      selectedPreset = 'AM';
-      startTime = '06:00';
-      endTime = '11:00';
-    } else if (worker.schedule != 'Unassigned') {
-      isCustom = true;
-      selectedPreset = 'Custom';
+    // Parse initial worker schedule if available
+    final parts = worker.schedule.split(RegExp(r'\s*[-–—]\s*'));
+    if (parts.length >= 2) {
+      final sStr = parts[0].replaceAll(RegExp(r'[^0-9:]'), '').trim();
+      final eStr = parts[1].replaceAll(RegExp(r'[^0-9:]'), '').trim();
+      final sParts = sStr.split(':');
+      final eParts = eStr.split(':');
+      if (sParts.length == 2) {
+        int h = int.tryParse(sParts[0]) ?? 6;
+        if (parts[0].toUpperCase().contains('PM') && h < 12) h += 12;
+        startTime = TimeOfDay(hour: h, minute: int.tryParse(sParts[1]) ?? 0);
+      }
+      if (eParts.length == 2) {
+        int h = int.tryParse(eParts[0]) ?? 11;
+        if (parts[1].toUpperCase().contains('PM') && h < 12) h += 12;
+        endTime = TimeOfDay(hour: h, minute: int.tryParse(eParts[1]) ?? 0);
+      }
     }
 
-    final startController = TextEditingController(text: startTime);
-    final endController = TextEditingController(text: endTime);
-    final daysController = TextEditingController(text: selectedDays);
+    bool showCustomHours = false;
+    String? selectedPresetId;
 
     showDialog(
       context: context,
       builder: (dialogCtx) => StatefulBuilder(
         builder: (context, setModalState) {
+          final presetsAsync = ref.watch(timePresetsProvider);
+          final presets = presetsAsync.hasValue ? (presetsAsync.value ?? []) : TimePresetModel.defaultPresets();
+
+          String formatTime(TimeOfDay t) {
+            final now = DateTime.now();
+            final dt = DateTime(now.year, now.month, now.day, t.hour, t.minute);
+            return DateFormat('hh:mm a').format(dt);
+          }
+
           return AlertDialog(
             title: Row(
               children: [
@@ -252,187 +360,341 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
               ],
             ),
             content: SizedBox(
-              width: 480,
+              width: 540,
               child: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Choose a working shift for ${widget.area.name}. The worker will immediately receive an in-app notification on their phone.',
+                      'Configure working hours and scheduled days off for ${worker.fullName} in ${widget.area.name}. These will synchronize directly with attendance sheets.',
                       style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                     ),
                     const SizedBox(height: 16),
-                    const Text('Shift Presets', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+
+                    // ========================================================
+                    // PART 1: PRESETS (3 per row card choices - compact)
+                    // ========================================================
+                    const Text('1. Shift Presets', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () {
-                              setModalState(() {
-                                selectedPreset = 'AM';
-                                isCustom = false;
-                                startTime = '06:00';
-                                endTime = '11:00';
-                                selectedDays = 'Mon-Fri';
-                                startController.text = startTime;
-                                endController.text = endTime;
-                                daysController.text = selectedDays;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: selectedPreset == 'AM' ? AppColors.accentBlue.withValues(alpha: 0.1) : AppColors.surface,
-                                border: Border.all(
-                                  color: selectedPreset == 'AM' ? AppColors.accentBlue : AppColors.border,
-                                  width: selectedPreset == 'AM' ? 2 : 1,
-                                ),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        const crossAxisCount = 3;
+                        const spacing = 8.0;
+                        final cardWidth = (constraints.maxWidth - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+
+                        return Wrap(
+                          spacing: spacing,
+                          runSpacing: spacing,
+                          children: presets.map((preset) {
+                            final isSelected = selectedPresetId == preset.presetId;
+
+                            return SizedBox(
+                              width: cardWidth,
+                              child: InkWell(
                                 borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Column(
-                                children: [
-                                  Icon(Icons.wb_sunny_outlined, size: 20, color: selectedPreset == 'AM' ? AppColors.accentBlue : AppColors.textMuted),
-                                  const SizedBox(height: 4),
-                                  const Text('Morning (AM)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 2),
-                                  const Text('06:00 - 11:00', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                  const Text('Mon - Fri', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () {
-                              setModalState(() {
-                                selectedPreset = 'PM';
-                                isCustom = false;
-                                startTime = '13:00';
-                                endTime = '17:00';
-                                selectedDays = 'Mon-Fri';
-                                startController.text = startTime;
-                                endController.text = endTime;
-                                daysController.text = selectedDays;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: selectedPreset == 'PM' ? AppColors.accentBlue.withValues(alpha: 0.1) : AppColors.surface,
-                                border: Border.all(
-                                  color: selectedPreset == 'PM' ? AppColors.accentBlue : AppColors.border,
-                                  width: selectedPreset == 'PM' ? 2 : 1,
+                                onTap: () {
+                                  setModalState(() {
+                                    selectedPresetId = preset.presetId;
+                                    final p1 = preset.startTime.replaceAll(RegExp(r'[^0-9:]'), '').split(':');
+                                    final p2 = preset.endTime.replaceAll(RegExp(r'[^0-9:]'), '').split(':');
+                                    int h1 = int.tryParse(p1.first) ?? 6;
+                                    int m1 = p1.length > 1 ? (int.tryParse(p1[1]) ?? 0) : 0;
+                                    if (preset.startTime.toUpperCase().contains('PM') && h1 < 12) h1 += 12;
+
+                                    int h2 = int.tryParse(p2.first) ?? 11;
+                                    int m2 = p2.length > 1 ? (int.tryParse(p2[1]) ?? 0) : 0;
+                                    if (preset.endTime.toUpperCase().contains('PM') && h2 < 12) h2 += 12;
+
+                                    startTime = TimeOfDay(hour: h1, minute: m1);
+                                    endTime = TimeOfDay(hour: h2, minute: m2);
+                                    if (preset.defaultDayOff.isNotEmpty) {
+                                      selectedDayOffs = preset.defaultDayOff.split(',').map((d) => d.trim()).toSet();
+                                    }
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? AppColors.accentBlue.withValues(alpha: 0.08) : Colors.white,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isSelected ? AppColors.accentBlue : AppColors.border,
+                                      width: isSelected ? 1.5 : 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.timer_outlined,
+                                            size: 13,
+                                            color: isSelected ? AppColors.accentBlue : AppColors.textMuted,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Expanded(
+                                            child: Text(
+                                              preset.name,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: isSelected ? AppColors.accentBlue : AppColors.textPrimary,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        preset.formattedSchedule,
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                          color: isSelected ? AppColors.accentBlue : AppColors.textSecondary,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                                borderRadius: BorderRadius.circular(8),
                               ),
-                              child: Column(
-                                children: [
-                                  Icon(Icons.wb_twilight_outlined, size: 20, color: selectedPreset == 'PM' ? AppColors.accentBlue : AppColors.textMuted),
-                                  const SizedBox(height: 4),
-                                  const Text('Afternoon (PM)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 2),
-                                  const Text('13:00 - 17:00', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                  const Text('Mon - Fri', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () {
-                              setModalState(() {
-                                selectedPreset = 'Full';
-                                isCustom = false;
-                                startTime = '08:00';
-                                endTime = '17:00';
-                                selectedDays = 'Mon-Fri';
-                                startController.text = startTime;
-                                endController.text = endTime;
-                                daysController.text = selectedDays;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                              decoration: BoxDecoration(
-                                color: selectedPreset == 'Full' ? AppColors.accentBlue.withValues(alpha: 0.1) : AppColors.surface,
-                                border: Border.all(
-                                  color: selectedPreset == 'Full' ? AppColors.accentBlue : AppColors.border,
-                                  width: selectedPreset == 'Full' ? 2 : 1,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Column(
-                                children: [
-                                  Icon(Icons.apartment_outlined, size: 20, color: selectedPreset == 'Full' ? AppColors.accentBlue : AppColors.textMuted),
-                                  const SizedBox(height: 4),
-                                  const Text('Whole Day', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 2),
-                                  const Text('08:00 - 17:00', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                                  const Text('Mon - Fri', style: TextStyle(fontSize: 10, color: AppColors.textMuted)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                            );
+                          }).toList(),
+                        );
+                      },
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+
+                    // ========================================================
+                    // PART 2: CUSTOM WORKING HOURS (Collapsible / hidden unless toggled)
+                    // ========================================================
                     InkWell(
+                      borderRadius: BorderRadius.circular(8),
                       onTap: () {
                         setModalState(() {
-                          isCustom = !isCustom;
-                          if (isCustom) selectedPreset = 'Custom';
+                          showCustomHours = !showCustomHours;
+                          if (showCustomHours) selectedPresetId = null;
                         });
                       },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: showCustomHours ? AppColors.surfaceSubtle : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: showCustomHours ? AppColors.accentBlue.withValues(alpha: 0.3) : AppColors.border),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  showCustomHours ? Icons.schedule : Icons.access_time_outlined,
+                                  size: 16,
+                                  color: showCustomHours ? AppColors.accentBlue : AppColors.textSecondary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Custom Working Hours',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: showCustomHours ? AppColors.accentBlue : AppColors.textPrimary,
+                                  ),
+                                ),
+                                if (!showCustomHours) ...[
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '(${formatTime(startTime)} – ${formatTime(endTime)})',
+                                    style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            Icon(
+                              showCustomHours ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                              size: 18,
+                              color: AppColors.textMuted,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    if (showCustomHours) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceSubtle,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Start Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                                  const SizedBox(height: 4),
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () async {
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: startTime,
+                                      );
+                                      if (picked != null) {
+                                        setModalState(() {
+                                          startTime = picked;
+                                          selectedPresetId = null;
+                                        });
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: AppColors.border),
+                                        borderRadius: BorderRadius.circular(8),
+                                        color: Colors.white,
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            formatTime(startTime),
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.accentBlue),
+                                          ),
+                                          const Icon(Icons.access_time_rounded, size: 16, color: AppColors.accentBlue),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('End Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                                  const SizedBox(height: 4),
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(8),
+                                    onTap: () async {
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: endTime,
+                                      );
+                                      if (picked != null) {
+                                        setModalState(() {
+                                          endTime = picked;
+                                          selectedPresetId = null;
+                                        });
+                                      }
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: AppColors.border),
+                                        borderRadius: BorderRadius.circular(8),
+                                        color: Colors.white,
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            formatTime(endTime),
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.accentBlue),
+                                          ),
+                                          const Icon(Icons.access_time_filled_rounded, size: 16, color: AppColors.accentBlue),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+
+                    // ========================================================
+                    // PART 3: ASSIGNING DAY OFFS (Centered chip buttons)
+                    // ========================================================
+                    const Text('2. Scheduled Days Off', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Click on days the worker will have their day off. Unselected days are working days.',
+                      style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                    ),
+                    const SizedBox(height: 10),
+                    Center(
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _weekdays.map((day) {
+                          final isSelected = selectedDayOffs.contains(day);
+                          return FilterChip(
+                            label: Text(day),
+                            selected: isSelected,
+                            selectedColor: const Color(0xFFD97706).withValues(alpha: 0.18),
+                            checkmarkColor: const Color(0xFFD97706),
+                            labelStyle: TextStyle(
+                              fontSize: 12,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? const Color(0xFFB45309) : AppColors.textPrimary,
+                            ),
+                            side: BorderSide(
+                              color: isSelected ? const Color(0xFFD97706) : AppColors.border,
+                            ),
+                            onSelected: (val) {
+                              setModalState(() {
+                                if (val) {
+                                  selectedDayOffs.add(day);
+                                } else {
+                                  selectedDayOffs.remove(day);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceSubtle,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppColors.border),
+                      ),
                       child: Row(
                         children: [
-                          Icon(isCustom ? Icons.check_box_outlined : Icons.check_box_outline_blank, size: 18, color: AppColors.accentBlue),
-                          const SizedBox(width: 8),
-                          const Text('Custom Shift Hours & Days', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                          const Icon(Icons.info_outline, size: 14, color: AppColors.textMuted),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              selectedDayOffs.isEmpty
+                                  ? 'No day off selected (Worker has 7-day schedule)'
+                                  : 'Selected Rest Days: ${selectedDayOffs.join(', ')}',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                    if (isCustom) ...[
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Start Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 4),
-                                TextField(controller: startController, decoration: const InputDecoration(hintText: '06:00', isDense: true)),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('End Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 4),
-                                TextField(controller: endController, decoration: const InputDecoration(hintText: '11:00', isDense: true)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Text('Working Days', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      TextField(controller: daysController, decoration: const InputDecoration(hintText: 'Mon-Fri or Mon,Wed,Fri', isDense: true)),
-                    ],
                   ],
                 ),
               ),
@@ -451,27 +713,59 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                 ),
                 onPressed: isSaving ? null : () async {
                   setModalState(() => isSaving = true);
-                  final finalSt = startController.text.trim().isNotEmpty ? startController.text.trim() : '08:00';
-                  final finalEt = endController.text.trim().isNotEmpty ? endController.text.trim() : '17:00';
-                  final finalDays = daysController.text.trim().isNotEmpty ? daysController.text.trim() : 'Mon-Fri';
+                  final finalSt = formatTime(startTime);
+                  final finalEt = formatTime(endTime);
+                  final dayOffStr = selectedDayOffs.isEmpty ? 'None' : selectedDayOffs.join(', ');
+                  final daysSummary = selectedDayOffs.isEmpty
+                      ? 'Daily'
+                      : (selectedDayOffs.contains('Saturday') && selectedDayOffs.contains('Sunday') ? 'Mon-Fri' : 'Scheduled');
 
                   final repo = ref.read(dataRepositoryProvider);
+
+                  // 1. Update worker model schedule
                   await repo.updateWorkerSchedule(
                     workerId: worker.userId,
                     startTime: finalSt,
                     endTime: finalEt,
-                    days: finalDays,
+                    days: daysSummary,
                     areaName: widget.area.name,
                   );
+
+                  // 2. Synchronize with active monthly schedule sheets
+                  try {
+                    final now = DateTime.now();
+                    final sheets = await repo.getScheduleSheets(month: now.month, year: now.year);
+                    for (final sheet in sheets) {
+                      final hasWorker = sheet.entries.any((e) => e.userId == worker.userId);
+                      if (hasWorker) {
+                        final updatedEntries = sheet.entries.map((e) {
+                          if (e.userId == worker.userId) {
+                            return e.copyWith(
+                              timeSchedule: '$finalSt – $finalEt',
+                              dayOff: dayOffStr,
+                              assignedAreaId: widget.area.workareaId,
+                              assignedAreaName: widget.area.name,
+                            );
+                          }
+                          return e;
+                        }).toList();
+                        await repo.saveScheduleSheet(sheet.copyWith(entries: updatedEntries));
+                      }
+                    }
+                  } catch (e) {
+                    debugPrint('Sync shift to schedule sheets error: $e');
+                  }
 
                   ref.invalidate(employeesProvider);
                   ref.invalidate(workAreasProvider);
                   ref.invalidate(broadcastsProvider);
+                  ref.invalidate(scheduleSheetsProvider);
+
                   if (context.mounted) {
                     Navigator.of(dialogCtx).pop();
                     ToastNotification.show(
                       context,
-                      message: 'Shift for ${worker.fullName} set to $finalDays $finalSt - $finalEt. Worker notified!',
+                      message: 'Shift for ${worker.fullName} set to $finalSt – $finalEt (Day off: $dayOffStr). Unified across attendance!',
                       type: ToastType.success,
                     );
                   }
@@ -569,6 +863,10 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
     final currentUser = ref.watch(currentUserProvider);
     final isAdmin = currentUser.role == UserRole.admin;
     final filteredWorkers = _getFilteredAndSortedWorkers();
+
+    final now = DateTime.now();
+    final sheetsAsync = ref.watch(scheduleSheetsProvider(ScheduleSheetsQuery(month: now.month, year: now.year)));
+    final sheets = sheetsAsync.value ?? [];
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -933,15 +1231,13 @@ class _AreaWorkersDialogState extends ConsumerState<AreaWorkersDialog> {
                                           runSpacing: 4,
                                           crossAxisAlignment: WrapCrossAlignment.center,
                                           children: [
-                                            Text(
-                                              [
-                                                if (worker.contactNumber.isNotEmpty) worker.contactNumber,
-                                                'Credit: ${worker.creditScore}%',
-                                              ].join(' • '),
-                                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            _buildShiftBadge(worker.schedule),
+                                            if (worker.contactNumber.isNotEmpty)
+                                              Text(
+                                                worker.contactNumber,
+                                                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            _buildWorkerDaySchedule(worker, sheets),
                                           ],
                                         ),
                                       ],

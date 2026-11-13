@@ -5,6 +5,7 @@ import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
 import '../models/leave_request_model.dart';
 import '../models/worker_schedule_sheet_model.dart';
+import '../models/time_preset_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
@@ -47,6 +48,11 @@ abstract class DataRepository {
   Future<List<ScheduleSheetModel>> getScheduleSheets({int? month, int? year});
   Future<void> saveScheduleSheet(ScheduleSheetModel sheet);
   Future<void> deleteScheduleSheet(String sheetId);
+
+  // Time Schedule Presets
+  Future<List<TimePresetModel>> getTimePresets();
+  Future<void> saveTimePreset(TimePresetModel preset);
+  Future<void> deleteTimePreset(String presetId);
 
   // Attendance & Location Tracking (UC-08)
   Future<List<AttendanceModel>> getAttendanceLogs({String? areaId, String? workerId});

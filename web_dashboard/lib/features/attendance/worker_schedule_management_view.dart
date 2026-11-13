@@ -29,6 +29,8 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
 
   // Local working copy of sheets for unsaved edits before commit
   Map<String, ScheduleSheetModel> _localSheets = {};
+  // Cache removed entries so transferring a worker between sheets preserves their area, day off, and schedule
+  final Map<String, ScheduleEntryModel> _removedEntriesCache = {};
   bool _isSaving = false;
   bool _hasUnsavedChanges = false;
   final ScrollController _tabsScrollController = ScrollController();
@@ -143,7 +145,9 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                 workerId: entry.userId,
                 startTime: entry.timeSchedule.split('–').first.split('-').first.trim(),
                 endTime: entry.timeSchedule.split('–').last.split('-').last.trim(),
-                days: entry.dayOff == 'None' ? 'Daily' : 'Mon-Fri',
+                days: entry.dayOff.isEmpty || entry.dayOff == 'None'
+                    ? 'Daily'
+                    : 'Off: ${entry.dayOff}',
                 areaName: entry.assignedAreaName,
               );
             }
@@ -590,6 +594,76 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
     String selectedSchedule = '06:00 AM – 03:00 PM';
     final remarksController = TextEditingController(text: '');
 
+    // Helper to auto-populate existing attributes from previous sheet/removal cache or user model
+    void populateWorkerAttributes(UserModel? worker) {
+      if (worker == null) return;
+
+      // 1. Check if the worker was previously removed in this session
+      final cached = _removedEntriesCache[worker.userId];
+      // 2. Check if the worker exists in any other local sheet
+      ScheduleEntryModel? otherSheetEntry;
+      if (cached == null) {
+        for (final s in _localSheets.values) {
+          final found = s.entries.where((e) => e.userId == worker.userId).firstOrNull;
+          if (found != null) {
+            otherSheetEntry = found;
+            break;
+          }
+        }
+      }
+
+      final refEntry = cached ?? otherSheetEntry;
+      if (refEntry != null) {
+        if (refEntry.assignedAreaId.isNotEmpty && refEntry.assignedAreaId != 'unassigned') {
+          selectedAreaId = refEntry.assignedAreaId;
+          selectedAreaName = refEntry.assignedAreaName;
+        }
+        if (refEntry.dayOff.isNotEmpty) {
+          selectedDayOff = refEntry.dayOff;
+        }
+        if (refEntry.timeSchedule.isNotEmpty && refEntry.timeSchedule != 'Unassigned') {
+          selectedSchedule = refEntry.timeSchedule;
+        }
+        if (refEntry.statusRemarks.isNotEmpty) {
+          remarksController.text = refEntry.statusRemarks;
+        }
+      } else {
+        // Fallback: check worker's UserModel properties
+        if (worker.assignedAreaId != null && worker.assignedAreaId!.isNotEmpty && worker.assignedAreaId != 'unassigned') {
+          selectedAreaId = worker.assignedAreaId!;
+          selectedAreaName = worker.assignedAreaName ?? selectedAreaName;
+        }
+        if (worker.schedule.isNotEmpty && worker.schedule != 'Unassigned') {
+          // Check for "Off: <days>"
+          final offMatch = RegExp(r'Off:\s*([^0-9\-–—]+)', caseSensitive: false).firstMatch(worker.schedule);
+          if (offMatch != null && offMatch.group(1) != null) {
+            selectedDayOff = offMatch.group(1)!.trim();
+          } else {
+            final lower = worker.schedule.toLowerCase();
+            if (lower.contains('mon-fri') || lower.contains('mon to fri')) {
+              selectedDayOff = 'Saturday, Sunday';
+            } else if (lower.contains('mon-sat') || lower.contains('mon to sat')) {
+              selectedDayOff = 'Sunday';
+            } else if (lower.contains('daily') || lower.contains('everyday')) {
+              selectedDayOff = 'None';
+            }
+          }
+          final (st, et) = _extractStartAndEnd(worker.schedule);
+          selectedSchedule = _formatTimeSchedule(st, et);
+        }
+      }
+
+      // Ensure selectedAreaId is valid within allAreas
+      if (allAreas.isNotEmpty && !allAreas.any((a) => a.workareaId == selectedAreaId)) {
+        selectedAreaId = allAreas.first.workareaId;
+        selectedAreaName = allAreas.first.name;
+      }
+    }
+
+    if (selectedWorker != null) {
+      populateWorkerAttributes(selectedWorker);
+    }
+
     if (!mounted) return;
     showDialog(
       context: context,
@@ -637,7 +711,12 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
                                   );
                                 }).toList(),
                                 onChanged: (val) {
-                                  if (val != null) setModal(() => selectedWorker = val);
+                                  if (val != null) {
+                                    setModal(() {
+                                      selectedWorker = val;
+                                      populateWorkerAttributes(val);
+                                    });
+                                  }
                                 },
                               ),
                             ),
@@ -822,6 +901,7 @@ class _WorkerScheduleManagementViewState extends ConsumerState<WorkerScheduleMan
       confirmVariant: ButtonVariant.danger,
       onConfirm: () {
         setState(() {
+          _removedEntriesCache[entry.userId] = entry;
           final currentEntries = _localSheets[sheet.sheetId]?.entries ?? sheet.entries;
           final updated = List<ScheduleEntryModel>.from(currentEntries)
             ..removeWhere((e) => e.entryId == entry.entryId);

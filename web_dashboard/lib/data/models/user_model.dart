@@ -47,6 +47,8 @@ class UserModel {
     }
   }
 
+  bool get isTerminated => status.toLowerCase() == 'terminated';
+
   UserModel copyWith({
     String? userId,
     String? username,

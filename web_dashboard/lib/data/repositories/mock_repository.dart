@@ -5,6 +5,7 @@ import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
 import '../models/leave_request_model.dart';
 import '../models/worker_schedule_sheet_model.dart';
+import '../models/time_preset_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
@@ -24,6 +25,7 @@ class MockRepository implements DataRepository {
   final List<LocationTrackingModel> _locationTracking;
   final List<ScheduleSheetModel> _scheduleSheets;
   final List<PasskeyModel> _passkeys = [];
+  final List<TimePresetModel> _timePresets = List.from(TimePresetModel.defaultPresets());
   final Set<String> _clearedMonths = {};
 
   MockRepository({
@@ -183,7 +185,19 @@ class MockRepository implements DataRepository {
 
   @override
   Future<void> deleteUser(String userId) async {
-    _users.removeWhere((u) => u.userId == userId);
+    final idx = _users.indexWhere((u) => u.userId == userId);
+    if (idx != -1) {
+      // Soft-delete to preserve all past transaction logs, proofs, and reports
+      _users[idx] = _users[idx].copyWith(
+        status: 'terminated',
+        clearAssignedArea: true,
+      );
+      // Synchronize assigned counts across work areas
+      for (int i = 0; i < _workAreas.length; i++) {
+        final count = _countWorkersInArea(_workAreas[i].workareaId);
+        _workAreas[i] = _workAreas[i].copyWith(assignedCount: count);
+      }
+    }
   }
 
   @override
@@ -396,6 +410,27 @@ class MockRepository implements DataRepository {
         _clearedMonths.add('${s.year}-${s.month}');
       }
     }
+  }
+
+  // Time Schedule Presets
+  @override
+  Future<List<TimePresetModel>> getTimePresets() async {
+    return List.unmodifiable(_timePresets);
+  }
+
+  @override
+  Future<void> saveTimePreset(TimePresetModel preset) async {
+    final idx = _timePresets.indexWhere((p) => p.presetId == preset.presetId);
+    if (idx != -1) {
+      _timePresets[idx] = preset;
+    } else {
+      _timePresets.add(preset);
+    }
+  }
+
+  @override
+  Future<void> deleteTimePreset(String presetId) async {
+    _timePresets.removeWhere((p) => p.presetId == presetId);
   }
 
   // Attendance & Location Tracking (UC-08)

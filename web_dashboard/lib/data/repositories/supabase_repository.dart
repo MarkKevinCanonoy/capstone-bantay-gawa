@@ -9,6 +9,7 @@ import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
 import '../models/leave_request_model.dart';
 import '../models/worker_schedule_sheet_model.dart';
+import '../models/time_preset_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
@@ -17,6 +18,7 @@ import 'data_repository.dart';
 
 class SupabaseRepository implements DataRepository {
   SupabaseClient get _client => Supabase.instance.client;
+  static final List<TimePresetModel> _supaMemPresets = List.from(TimePresetModel.defaultPresets());
 
   // ==========================================
   // Work Areas
@@ -364,7 +366,10 @@ class SupabaseRepository implements DataRepository {
   @override
   Future<void> deleteUser(String userId) async {
     try {
-      await _client.from('users').delete().eq('user_id', userId);
+      // Soft-delete: update status to 'terminated' to preserve historical transactions, reports, and attendance logs
+      await _client.from('users').update({'status': 'terminated'}).eq('user_id', userId);
+      // Deactivate any active work area assignments
+      await _client.from('work_area_assignments').update({'is_active': false}).eq('user_id', userId);
     } catch (e) {
       debugPrint('SupabaseRepository deleteUser error: $e');
       rethrow;
@@ -650,6 +655,44 @@ class SupabaseRepository implements DataRepository {
     }
   }
 
+  // Time Schedule Presets
+  @override
+  Future<List<TimePresetModel>> getTimePresets() async {
+    try {
+      final res = await _client.from('schedule_presets').select().order('name');
+      final list = (res as List).map((m) => TimePresetModel.fromJson(m as Map<String, dynamic>)).toList();
+      if (list.isNotEmpty) return list;
+    } catch (_) {
+      // Fallback to in-memory defaults if table not created
+    }
+    return List.unmodifiable(_supaMemPresets);
+  }
+
+  @override
+  Future<void> saveTimePreset(TimePresetModel preset) async {
+    final idx = _supaMemPresets.indexWhere((p) => p.presetId == preset.presetId);
+    if (idx != -1) {
+      _supaMemPresets[idx] = preset;
+    } else {
+      _supaMemPresets.add(preset);
+    }
+    try {
+      await _client.from('schedule_presets').upsert(preset.toJson(), onConflict: 'preset_id');
+    } catch (e) {
+      debugPrint('SupabaseRepository saveTimePreset notice: $e');
+    }
+  }
+
+  @override
+  Future<void> deleteTimePreset(String presetId) async {
+    _supaMemPresets.removeWhere((p) => p.presetId == presetId);
+    try {
+      await _client.from('schedule_presets').delete().eq('preset_id', presetId);
+    } catch (e) {
+      debugPrint('SupabaseRepository deleteTimePreset notice: $e');
+    }
+  }
+
   // ==========================================
   // Attendance & Location Tracking
   // ==========================================
@@ -851,13 +894,26 @@ class SupabaseRepository implements DataRepository {
   @override
   Future<List<LeaveRequestModel>> getLeaveRequests({String? areaId}) async {
     try {
-      final res = await _client.from('leave_requests').select('''
-        *,
-        users:users!leave_requests_user_id_fkey(first_name, last_name, assigned_area_name),
-        work_areas(name)
-      ''').order('created_at', ascending: false);
+      List<dynamic> res;
+      try {
+        // Preferred join: users table via user_id
+        res = await _client.from('leave_requests').select('''
+          *,
+          users:users!leave_requests_user_id_fkey(first_name, last_name)
+        ''').order('created_at', ascending: false);
+      } catch (_) {
+        try {
+          res = await _client.from('leave_requests').select('''
+            *,
+            users:users!user_id(first_name, last_name)
+          ''').order('created_at', ascending: false);
+        } catch (_) {
+          // Fallback to select *
+          res = await _client.from('leave_requests').select('*').order('created_at', ascending: false);
+        }
+      }
 
-      final list = (res as List).map((m) => LeaveRequestModel.fromJson(m as Map<String, dynamic>)).toList();
+      final list = res.map((m) => LeaveRequestModel.fromJson(m as Map<String, dynamic>)).toList();
 
       // Enrich rejectionReason for denied leaves from notifications
       final deniedLeaves = list.where((l) => l.status == 'denied').toList();

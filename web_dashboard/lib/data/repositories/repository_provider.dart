@@ -13,6 +13,7 @@ import '../models/attendance_model.dart';
 import '../models/accomplishment_model.dart';
 import '../models/leave_request_model.dart';
 import '../models/worker_schedule_sheet_model.dart';
+import '../models/time_preset_model.dart';
 import '../models/alert_model.dart';
 import '../models/broadcast_model.dart';
 import '../models/incident_report_model.dart';
@@ -311,6 +312,11 @@ class ScheduleSheetsQuery {
 final scheduleSheetsProvider = FutureProvider.autoDispose.family<List<ScheduleSheetModel>, ScheduleSheetsQuery>((ref, query) async {
   final repo = ref.watch(dataRepositoryProvider);
   return repo.getScheduleSheets(month: query.month, year: query.year);
+});
+
+final timePresetsProvider = FutureProvider.autoDispose<List<TimePresetModel>>((ref) async {
+  final repo = ref.watch(dataRepositoryProvider);
+  return repo.getTimePresets();
 });
 
 final accomplishmentsProvider = FutureProvider.autoDispose<List<AccomplishmentModel>>((ref) async {

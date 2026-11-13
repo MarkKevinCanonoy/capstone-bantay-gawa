@@ -15,6 +15,7 @@ class OfficialAttendanceExcelHelper {
       required ScheduleEntryModel worker,
       required DateTime date,
     }) evaluateStatus,
+    Map<String, String>? workerStatusMap,
   }) async {
     final workbook = xlsio.Workbook();
 
@@ -38,7 +39,7 @@ class OfficialAttendanceExcelHelper {
       } catch (_) {}
     }
 
-    final totalCols = 5 + daysInMonth + 4; // No, Name, Sector, Schedule, DayOff + Days + 4 summaries
+    final totalCols = 6 + daysInMonth + 4; // No, Name, Status, Sector, Schedule, DayOff + Days + 4 summaries
     final lastColLetter = _getColumnLetter(totalCols);
 
     for (int sIdx = 0; sIdx < sheets.length; sIdx++) {
@@ -53,19 +54,20 @@ class OfficialAttendanceExcelHelper {
       // 1. Column Widths
       sheet.getRangeByName('A1').columnWidth = 10.0;  // No. / Logo Column (widened to accommodate and center seal)
       sheet.getRangeByName('B1').columnWidth = 26.0;  // Worker's Name
-      sheet.getRangeByName('C1').columnWidth = 22.0;  // Assigned Sector
-      sheet.getRangeByName('D1').columnWidth = 24.0;  // Shift Schedule (widened to comfortably fit full range)
-      sheet.getRangeByName('E1').columnWidth = 20.0;  // Day Off (widened to comfortably fit multiple days)
+      sheet.getRangeByName('C1').columnWidth = 14.0;  // Status (Active / Terminated)
+      sheet.getRangeByName('D1').columnWidth = 22.0;  // Assigned Sector
+      sheet.getRangeByName('E1').columnWidth = 24.0;  // Shift Schedule (widened to comfortably fit full range)
+      sheet.getRangeByName('F1').columnWidth = 20.0;  // Day Off (widened to comfortably fit multiple days)
 
       for (int d = 0; d < daysInMonth; d++) {
-        final colLetter = _getColumnLetter(6 + d);
+        final colLetter = _getColumnLetter(7 + d);
         sheet.getRangeByName('${colLetter}1').columnWidth = 5.2; // Compact day column
       }
 
-      final pCol = _getColumnLetter(6 + daysInMonth);
-      final lCol = _getColumnLetter(6 + daysInMonth + 1);
-      final aCol = _getColumnLetter(6 + daysInMonth + 2);
-      final lvCol = _getColumnLetter(6 + daysInMonth + 3);
+      final pCol = _getColumnLetter(7 + daysInMonth);
+      final lCol = _getColumnLetter(7 + daysInMonth + 1);
+      final aCol = _getColumnLetter(7 + daysInMonth + 2);
+      final lvCol = _getColumnLetter(7 + daysInMonth + 3);
 
       sheet.getRangeByName('${pCol}1').columnWidth = 7.5;
       sheet.getRangeByName('${lCol}1').columnWidth = 7.5;
@@ -170,6 +172,7 @@ class OfficialAttendanceExcelHelper {
       final headers = <String>[
         'No.',
         "Worker's Full Name",
+        'Status',
         'Assigned Sector',
         'Shift Schedule',
         'Day Off',
@@ -223,8 +226,21 @@ class OfficialAttendanceExcelHelper {
         nameCell.cellStyle.borders.all.lineStyle = xlsio.LineStyle.thin;
         nameCell.cellStyle.borders.all.color = '#E2E8F0';
 
+        // Status (Active / Terminated)
+        final statusRaw = (workerStatusMap != null ? workerStatusMap[worker.userId] : null) ?? 'Active';
+        final isTerminated = statusRaw.toLowerCase() == 'terminated';
+        final statusCell = sheet.getRangeByName('C$currentRow');
+        statusCell.text = isTerminated ? 'Terminated' : 'Active';
+        statusCell.cellStyle.hAlign = xlsio.HAlignType.center;
+        statusCell.cellStyle.vAlign = xlsio.VAlignType.center;
+        statusCell.cellStyle.bold = true;
+        statusCell.cellStyle.backColor = isTerminated ? '#FEE2E2' : '#DCFCE7';
+        statusCell.cellStyle.fontColor = isTerminated ? '#991B1B' : '#166534';
+        statusCell.cellStyle.borders.all.lineStyle = xlsio.LineStyle.thin;
+        statusCell.cellStyle.borders.all.color = '#E2E8F0';
+
         // Assigned Sector
-        final sectorCell = sheet.getRangeByName('C$currentRow');
+        final sectorCell = sheet.getRangeByName('D$currentRow');
         sectorCell.text = worker.assignedAreaName;
         sectorCell.cellStyle.vAlign = xlsio.VAlignType.center;
         sectorCell.cellStyle.backColor = rowBg;
@@ -232,7 +248,7 @@ class OfficialAttendanceExcelHelper {
         sectorCell.cellStyle.borders.all.color = '#E2E8F0';
 
         // Shift Schedule
-        final schedCell = sheet.getRangeByName('D$currentRow');
+        final schedCell = sheet.getRangeByName('E$currentRow');
         schedCell.text = worker.timeSchedule;
         schedCell.cellStyle.vAlign = xlsio.VAlignType.center;
         schedCell.cellStyle.backColor = rowBg;
@@ -240,7 +256,7 @@ class OfficialAttendanceExcelHelper {
         schedCell.cellStyle.borders.all.color = '#E2E8F0';
 
         // Day Off
-        final dayOffCell = sheet.getRangeByName('E$currentRow');
+        final dayOffCell = sheet.getRangeByName('F$currentRow');
         dayOffCell.text = worker.dayOff;
         dayOffCell.cellStyle.hAlign = xlsio.HAlignType.center;
         dayOffCell.cellStyle.vAlign = xlsio.VAlignType.center;
@@ -256,7 +272,7 @@ class OfficialAttendanceExcelHelper {
         // Daily Attendance Cells with Professional Color Highlights
         for (int d = 0; d < daysInMonth; d++) {
           final date = monthDates[d];
-          final colLetter = _getColumnLetter(6 + d);
+          final colLetter = _getColumnLetter(7 + d);
           final dayCell = sheet.getRangeByName('$colLetter$currentRow');
           
           final status = evaluateStatus(worker: worker, date: date);

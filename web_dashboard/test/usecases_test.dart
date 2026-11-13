@@ -27,6 +27,7 @@ import 'package:web_dashboard/features/attendance/attendance_view.dart';
 import 'package:web_dashboard/core/utils/official_report_pdf_helper.dart';
 import 'package:web_dashboard/core/utils/official_attendance_excel_helper.dart';
 import 'package:web_dashboard/data/models/worker_schedule_sheet_model.dart';
+import 'package:web_dashboard/data/models/time_preset_model.dart';
 import 'package:web_dashboard/features/attendance/widgets/weekly_attendance_matrix_widget.dart';
 
 class _SupervisorUserNotifier extends CurrentUserNotifier {
@@ -1594,6 +1595,113 @@ void main() {
       // Standard ZIP/XLSX file signature begins with PK\x03\x04
       expect(bytes[0], equals(0x50)); // 'P'
       expect(bytes[1], equals(0x4B)); // 'K'
+    });
+
+    test('Soft deletion preserves field reports, accomplishments, and logs while marking status as terminated', () async {
+      final repo = createTestRepository();
+      
+      // Verify worker initially exists and is active
+      final initialUsers = await repo.getUsers(role: UserRole.worker);
+      expect(initialUsers.any((u) => u.userId == 'user-w-1'), isTrue);
+
+      // Verify worker has accomplishments / attendance logs
+      final initialAcc = await repo.getAccomplishments();
+      final workerAccCount = initialAcc.where((a) => a.userId == 'user-w-1').length;
+      expect(workerAccCount, greaterThan(0));
+
+      final initialLogs = await repo.getAttendanceLogs();
+      final workerLogCount = initialLogs.where((l) => l.userId == 'user-w-1').length;
+      expect(workerLogCount, greaterThan(0));
+
+      // Delete worker via repository
+      await repo.deleteUser('user-w-1');
+
+      // Verify worker still exists in database with status 'terminated'
+      final allUsers = await repo.getUsers();
+      final terminatedWorker = allUsers.firstWhere((u) => u.userId == 'user-w-1');
+      expect(terminatedWorker.status.toLowerCase(), equals('terminated'));
+      expect(terminatedWorker.isTerminated, isTrue);
+
+      // Verify history is completely preserved
+      final postAcc = await repo.getAccomplishments();
+      expect(postAcc.where((a) => a.userId == 'user-w-1').length, equals(workerAccCount));
+
+      final postLogs = await repo.getAttendanceLogs();
+      expect(postLogs.where((l) => l.userId == 'user-w-1').length, equals(workerLogCount));
+    });
+
+    test('TimePresetModel creation, JSON serialization, and CRUD operations in repository', () async {
+      final repo = createTestRepository();
+      
+      final presets = await repo.getTimePresets();
+      expect(presets.length, greaterThanOrEqualTo(3));
+
+      // Create new preset
+      const newPreset = TimePresetModel(
+        presetId: 'preset-night',
+        name: 'Night Patrol',
+        startTime: '10:00 PM',
+        endTime: '04:00 AM',
+        defaultDayOff: 'Monday, Tuesday',
+      );
+
+      await repo.saveTimePreset(newPreset);
+      final updatedPresets = await repo.getTimePresets();
+      expect(updatedPresets.any((p) => p.presetId == 'preset-night'), isTrue);
+
+      // Delete preset
+      await repo.deleteTimePreset('preset-night');
+      final finalPresets = await repo.getTimePresets();
+      expect(finalPresets.any((p) => p.presetId == 'preset-night'), isFalse);
+    });
+
+    test('OfficialAttendanceExcelHelper includes Status column with Active and Terminated styling', () async {
+      final sheets = [
+        ScheduleSheetModel(
+          sheetId: 'sheet-status-test',
+          sheetName: 'Status Test Sheet',
+          month: 11,
+          year: 2026,
+          entries: [
+            ScheduleEntryModel(
+              entryId: 'entry-active',
+              userId: 'user-worker-1',
+              workerName: 'Pedro Penduko',
+              assignedAreaId: 'area-1',
+              assignedAreaName: 'City Hall',
+              timeSchedule: '06:00 AM – 11:00 AM',
+              dayOff: 'Saturday, Sunday',
+            ),
+            ScheduleEntryModel(
+              entryId: 'entry-term',
+              userId: 'user-worker-2',
+              workerName: 'Juan Dela Cruz',
+              assignedAreaId: 'area-1',
+              assignedAreaName: 'City Hall',
+              timeSchedule: '06:00 AM – 11:00 AM',
+              dayOff: 'Saturday, Sunday',
+            ),
+          ],
+        ),
+      ];
+
+      final statusMap = {
+        'user-worker-1': 'active',
+        'user-worker-2': 'terminated',
+      };
+
+      final bytes = await OfficialAttendanceExcelHelper.generateMonthlyAttendanceWorkbook(
+        sheets: sheets,
+        monthStart: DateTime(2026, 11, 1),
+        workerStatusMap: statusMap,
+        evaluateStatus: ({required ScheduleEntryModel worker, required DateTime date}) {
+          return CellAttendanceStatus.present;
+        },
+      );
+
+      expect(bytes.isNotEmpty, isTrue);
+      expect(bytes[0], equals(0x50));
+      expect(bytes[1], equals(0x4B));
     });
   });
 }

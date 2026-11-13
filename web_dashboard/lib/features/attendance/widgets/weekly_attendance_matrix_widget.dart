@@ -92,9 +92,20 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
   }) {
     // 1. Approved Leave Rule: Overrides normal work day and displays grey
     final dateMidnight = DateTime(date.year, date.month, date.day);
+    final wNameNorm = worker.workerName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
     final hasApprovedLeave = activeLeaves.any((l) {
-      if (l.userId != worker.userId && l.workerName.toLowerCase() != worker.workerName.toLowerCase()) return false;
-      if (l.status.toLowerCase() != 'approved') return false;
+      if (l.status.trim().toLowerCase() != 'approved') return false;
+
+      // Check user ID match
+      final userIdMatch = l.userId.isNotEmpty && (l.userId == worker.userId || worker.userId.contains(l.userId) || l.userId.contains(worker.userId));
+      
+      // Check normalized name match
+      final lNameNorm = l.workerName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+      final nameMatch = (lNameNorm.isNotEmpty && wNameNorm.isNotEmpty) &&
+          (lNameNorm == wNameNorm || lNameNorm.contains(wNameNorm) || wNameNorm.contains(lNameNorm));
+
+      if (!userIdMatch && !nameMatch) return false;
+
       final start = DateTime.tryParse(l.startDate);
       final end = DateTime.tryParse(l.endDate);
       if (start == null || end == null) return false;
@@ -161,7 +172,31 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
     required DateTime date,
     required CellAttendanceStatus status,
     required List<AttendanceModel> logs,
+    List<LeaveRequestModel> activeLeaves = const [],
   }) {
+    // Find matching leave if any
+    final dateMidnight = DateTime(date.year, date.month, date.day);
+    final wNameNorm = worker.workerName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    LeaveRequestModel? matchingLeave;
+    for (final l in activeLeaves) {
+      if (l.status.trim().toLowerCase() != 'approved') continue;
+      final userIdMatch = l.userId.isNotEmpty && (l.userId == worker.userId || worker.userId.contains(l.userId) || l.userId.contains(worker.userId));
+      final lNameNorm = l.workerName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+      final nameMatch = (lNameNorm.isNotEmpty && wNameNorm.isNotEmpty) &&
+          (lNameNorm == wNameNorm || lNameNorm.contains(wNameNorm) || wNameNorm.contains(lNameNorm));
+      if (!userIdMatch && !nameMatch) continue;
+
+      final start = DateTime.tryParse(l.startDate);
+      final end = DateTime.tryParse(l.endDate);
+      if (start == null || end == null) continue;
+      final sMidnight = DateTime(start.year, start.month, start.day);
+      final eMidnight = DateTime(end.year, end.month, end.day);
+      if (!dateMidnight.isBefore(sMidnight) && !dateMidnight.isAfter(eMidnight)) {
+        matchingLeave = l;
+        break;
+      }
+    }
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -195,16 +230,26 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
               _detailRow('Assigned Area', worker.assignedAreaName),
               _detailRow('Shift Schedule', worker.timeSchedule),
               _detailRow('Scheduled Day Off', worker.dayOff),
+              if (matchingLeave != null) ...[
+                const Divider(height: 20),
+                const Text('Approved Leave Details:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF64748B))),
+                const SizedBox(height: 4),
+                _detailRow('Type', matchingLeave.type),
+                _detailRow('Reason', matchingLeave.reason.isNotEmpty ? matchingLeave.reason : 'Official Leave'),
+                _detailRow('Period', '${matchingLeave.startDate} to ${matchingLeave.endDate}'),
+              ],
               const Divider(height: 20),
               const Text('Logged Punches for Date:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
               const SizedBox(height: 6),
               if (logs.isEmpty)
                 Text(
-                  status == CellAttendanceStatus.dayOff
-                      ? 'No punches logged (Worker was on scheduled rest day).'
-                      : status == CellAttendanceStatus.absent
-                          ? 'No punches logged for this working date (Marked Absent).'
-                          : 'No punches recorded yet.',
+                  status == CellAttendanceStatus.onLeave
+                      ? 'No punches logged (Worker is on official approved leave).'
+                      : status == CellAttendanceStatus.dayOff
+                          ? 'No punches logged (Worker was on scheduled rest day).'
+                          : status == CellAttendanceStatus.absent
+                              ? 'No punches logged for this working date (Marked Absent).'
+                              : 'No punches recorded yet.',
                   style: const TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
                 )
               else
@@ -380,6 +425,9 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
     final leavesAsync = ref.watch(leaveRequestsProvider);
     final allLeaves = leavesAsync.value ?? [];
 
+    final employeesAsync = ref.watch(employeesProvider);
+    final allEmployees = employeesAsync.value ?? [];
+
     final weekFormatted = '${DateFormat('MMM d').format(_weekDays.first)} – ${DateFormat('MMM d, yyyy').format(_weekDays.last)}';
 
     return Container(
@@ -553,9 +601,10 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                   builder: (context, constraints) {
                     const colWidthNo = 50.0;
                     const colWidthName = 180.0;
+                    const colWidthStatus = 95.0;
                     const colWidthArea = 160.0;
                     const colWidthDay = 100.0;
-                    const totalTableWidth = colWidthNo + colWidthName + colWidthArea + (7 * colWidthDay); // 1090.0
+                    const totalTableWidth = colWidthNo + colWidthName + colWidthStatus + colWidthArea + (7 * colWidthDay); // 1185.0
 
                     return ConstrainedBox(
                       constraints: const BoxConstraints(
@@ -574,14 +623,15 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                                 columnWidths: const {
                                   0: FixedColumnWidth(colWidthNo),
                                   1: FixedColumnWidth(colWidthName),
-                                  2: FixedColumnWidth(colWidthArea),
-                                  3: FlexColumnWidth(1),
+                                  2: FixedColumnWidth(colWidthStatus),
+                                  3: FixedColumnWidth(colWidthArea),
                                   4: FlexColumnWidth(1),
                                   5: FlexColumnWidth(1),
                                   6: FlexColumnWidth(1),
                                   7: FlexColumnWidth(1),
                                   8: FlexColumnWidth(1),
                                   9: FlexColumnWidth(1),
+                                  10: FlexColumnWidth(1),
                                 },
                                 defaultVerticalAlignment: TableCellVerticalAlignment.middle,
                                 border: const TableBorder(
@@ -615,7 +665,17 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                                           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary),
                                         ),
                                       ),
-                                      // 3. Assigned Area
+                                      // 3. Status
+                                      Container(
+                                        height: 46,
+                                        alignment: Alignment.center,
+                                        child: const Text(
+                                          'Status',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary),
+                                        ),
+                                      ),
+                                      // 4. Assigned Area
                                       Container(
                                         height: 46,
                                         alignment: Alignment.center,
@@ -625,7 +685,7 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                                           style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: AppColors.textPrimary),
                                         ),
                                       ),
-                                      // 4-10: 7 Days of Week (Sunday - Saturday)
+                                      // 5-11: 7 Days of Week (Sunday - Saturday)
                                       ..._weekDays.map((day) {
                                         final dayName = DateFormat('EEEE').format(day);
                                         final fullDate = DateFormat('MMM d, yyyy').format(day);
@@ -670,6 +730,8 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                                   ...List.generate(activeSheet.entries.length, (index) {
                                     final worker = activeSheet.entries[index];
                                     final rowNumber = index + 1;
+                                    final empUser = allEmployees.where((u) => u.userId == worker.userId).firstOrNull;
+                                    final isTerminated = empUser?.isTerminated ?? (empUser?.status.toLowerCase() == 'terminated');
 
                                     return TableRow(
                                       children: [
@@ -695,7 +757,32 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                                           ),
                                         ),
-                                        // 3. Assigned Area (Centered)
+                                        // 3. Status (Centered)
+                                        Container(
+                                          height: 46,
+                                          alignment: Alignment.center,
+                                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: isTerminated ? const Color(0xFFFEE2E2) : const Color(0xFFDCFCE7),
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: isTerminated ? const Color(0xFFEF4444) : const Color(0xFF22C55E),
+                                                width: 0.8,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              isTerminated ? 'Terminated' : 'Active',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w700,
+                                                color: isTerminated ? const Color(0xFFB91C1C) : const Color(0xFF15803D),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        // 4. Assigned Area (Centered)
                                         Container(
                                           height: 46,
                                           alignment: Alignment.center,
@@ -717,7 +804,7 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                                             ],
                                           ),
                                         ),
-                                        // 4-10: 7 Days Attendance Indicators (Centered)
+                                        // 5-11: 7 Days Attendance Indicators (Centered)
                                         ..._weekDays.map((date) {
                                           final logsForDay = allLogs.where((l) {
                                             return (l.userId == worker.userId || l.workerName == worker.workerName) &&
@@ -742,6 +829,7 @@ class _WeeklyAttendanceMatrixWidgetState extends ConsumerState<WeeklyAttendanceM
                                               date: date,
                                               status: status,
                                               logs: logsForDay,
+                                              activeLeaves: allLeaves,
                                             ),
                                             child: Container(
                                               height: 46,
