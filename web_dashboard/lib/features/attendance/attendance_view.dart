@@ -10,6 +10,7 @@ import '../../core/widgets/status_badge.dart';
 import '../../core/widgets/toast_notification.dart';
 import '../../data/models/attendance_model.dart';
 import '../../data/models/leave_request_model.dart';
+import '../../data/models/time_preset_model.dart';
 import '../../data/models/user_model.dart';
 import '../../data/models/worker_schedule_sheet_model.dart';
 import '../../data/repositories/repository_provider.dart';
@@ -93,9 +94,20 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
   }) {
     // 1. Approved Leave Rule
     final dateMidnight = DateTime(date.year, date.month, date.day);
+    final wNameNorm = worker.workerName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
     final hasApprovedLeave = activeLeaves.any((l) {
-      if (l.userId != worker.userId && l.workerName.toLowerCase() != worker.workerName.toLowerCase()) return false;
-      if (l.status.toLowerCase() != 'approved') return false;
+      if (l.status.trim().toLowerCase() != 'approved') return false;
+
+      // Check user ID match
+      final userIdMatch = l.userId.isNotEmpty && (l.userId == worker.userId || worker.userId.contains(l.userId) || l.userId.contains(worker.userId));
+      
+      // Check normalized name match
+      final lNameNorm = l.workerName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+      final nameMatch = (lNameNorm.isNotEmpty && wNameNorm.isNotEmpty) &&
+          (lNameNorm == wNameNorm || lNameNorm.contains(wNameNorm) || wNameNorm.contains(lNameNorm));
+
+      if (!userIdMatch && !nameMatch) return false;
+
       final start = DateTime.tryParse(l.startDate);
       final end = DateTime.tryParse(l.endDate);
       if (start == null || end == null) return false;
@@ -150,6 +162,324 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     return CellAttendanceStatus.absent;
   }
 
+  void _showManageTimePresetsDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return Consumer(
+          builder: (context, ref, _) {
+            final presetsAsync = ref.watch(timePresetsProvider);
+            final presets = presetsAsync.hasValue ? (presetsAsync.value ?? []) : TimePresetModel.defaultPresets();
+
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentBlue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.alarm_on_rounded, color: AppColors.accentBlue, size: 20),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('Manage Shift & Time Presets', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SizedBox(
+                width: 540,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Define reusable time shift presets with predefined hours and days off. These can be selected when scheduling personnel across work areas and attendance registers.',
+                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 16),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: presets.map((preset) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          preset.name,
+                                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Hours: ${preset.formattedSchedule} • Day Offs: ${preset.defaultDayOff.isEmpty ? "None" : preset.defaultDayOff}',
+                                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined, size: 16, color: AppColors.accentBlue),
+                                    tooltip: 'Edit Preset',
+                                    onPressed: () {
+                                      _showPresetFormDialog(existingPreset: preset);
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.dangerRed),
+                                    tooltip: 'Delete Preset',
+                                    onPressed: () async {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (ctx) => AlertDialog(
+                                          title: const Text('Delete Time Preset'),
+                                          content: Text('Are you sure you want to delete preset "${preset.name}"?'),
+                                          actions: [
+                                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(backgroundColor: AppColors.dangerRed, foregroundColor: Colors.white),
+                                              onPressed: () => Navigator.pop(ctx, true),
+                                              child: const Text('Delete'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirm == true) {
+                                        await ref.read(dataRepositoryProvider).deleteTimePreset(preset.presetId);
+                                        ref.invalidate(timePresetsProvider);
+                                        if (context.mounted) {
+                                          ToastNotification.show(context, message: 'Deleted preset "${preset.name}".', type: ToastType.success);
+                                        }
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text('Add New Preset'),
+                  onPressed: () {
+                    _showPresetFormDialog();
+                  },
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(dialogCtx).pop(),
+                  child: const Text('Done'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showPresetFormDialog({TimePresetModel? existingPreset}) {
+    final nameCtrl = TextEditingController(text: existingPreset?.name ?? '');
+    
+    // Parse times
+    TimeOfDay parseTime(String timeStr, TimeOfDay fallback) {
+      try {
+        final clean = timeStr.replaceAll(RegExp(r'[^0-9:]'), '').split(':');
+        int h = int.tryParse(clean.first) ?? fallback.hour;
+        int m = clean.length > 1 ? (int.tryParse(clean[1]) ?? fallback.minute) : fallback.minute;
+        if (timeStr.toUpperCase().contains('PM') && h < 12) h += 12;
+        if (timeStr.toUpperCase().contains('AM') && h == 12) h = 0;
+        return TimeOfDay(hour: h, minute: m);
+      } catch (_) {
+        return fallback;
+      }
+    }
+
+    TimeOfDay startTime = existingPreset != null
+        ? parseTime(existingPreset.startTime, const TimeOfDay(hour: 6, minute: 0))
+        : const TimeOfDay(hour: 6, minute: 0);
+    TimeOfDay endTime = existingPreset != null
+        ? parseTime(existingPreset.endTime, const TimeOfDay(hour: 11, minute: 0))
+        : const TimeOfDay(hour: 11, minute: 0);
+
+    Set<String> selectedDayOffs = existingPreset != null && existingPreset.defaultDayOff.isNotEmpty
+        ? existingPreset.defaultDayOff.split(',').map((d) => d.trim()).toSet()
+        : {'Saturday', 'Sunday'};
+
+    final weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+    showDialog(
+      context: context,
+      builder: (formCtx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            String formatTime(TimeOfDay tod) {
+              final h = tod.hourOfPeriod == 0 ? 12 : tod.hourOfPeriod;
+              final m = tod.minute.toString().padLeft(2, '0');
+              final p = tod.period == DayPeriod.am ? 'AM' : 'PM';
+              return '${h.toString().padLeft(2, '0')}:$m $p';
+            }
+
+            return AlertDialog(
+              title: Text(existingPreset == null ? 'Create Shift Preset' : 'Edit Shift Preset', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              content: SizedBox(
+                width: 440,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Preset Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: nameCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'e.g. Morning Patrol Shift',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Clock Time Pickers
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Start Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                                const SizedBox(height: 4),
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () async {
+                                    final picked = await showTimePicker(context: context, initialTime: startTime);
+                                    if (picked != null) setModalState(() => startTime = picked);
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(8), color: Colors.white),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(formatTime(startTime), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.accentBlue)),
+                                        const Icon(Icons.access_time_rounded, size: 16, color: AppColors.accentBlue),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('End Time', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                                const SizedBox(height: 4),
+                                InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () async {
+                                    final picked = await showTimePicker(context: context, initialTime: endTime);
+                                    if (picked != null) setModalState(() => endTime = picked);
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                    decoration: BoxDecoration(border: Border.all(color: AppColors.border), borderRadius: BorderRadius.circular(8), color: Colors.white),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(formatTime(endTime), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.accentBlue)),
+                                        const Icon(Icons.access_time_rounded, size: 16, color: AppColors.accentBlue),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Default Day Offs
+                      const Text('Default Day Offs', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: weekdays.map((day) {
+                          final isSelected = selectedDayOffs.contains(day);
+                          return FilterChip(
+                            label: Text(day, style: TextStyle(fontSize: 11, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, color: isSelected ? AppColors.accentBlue : AppColors.textPrimary)),
+                            selected: isSelected,
+                            selectedColor: AppColors.accentBlue.withValues(alpha: 0.15),
+                            checkmarkColor: AppColors.accentBlue,
+                            onSelected: (selected) {
+                              setModalState(() {
+                                if (selected) {
+                                  selectedDayOffs.add(day);
+                                } else {
+                                  selectedDayOffs.remove(day);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.of(formCtx).pop(), child: const Text('Cancel')),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.accentBlue, foregroundColor: Colors.white),
+                  onPressed: () async {
+                    final name = nameCtrl.text.trim();
+                    if (name.isEmpty) {
+                      ToastNotification.show(context, message: 'Please enter a preset name.', type: ToastType.warning);
+                      return;
+                    }
+                    final preset = TimePresetModel(
+                      presetId: existingPreset?.presetId ?? 'preset-${DateTime.now().millisecondsSinceEpoch}',
+                      name: name,
+                      startTime: formatTime(startTime),
+                      endTime: formatTime(endTime),
+                      defaultDayOff: selectedDayOffs.join(', '),
+                    );
+                    await ref.read(dataRepositoryProvider).saveTimePreset(preset);
+                    ref.invalidate(timePresetsProvider);
+                    if (context.mounted) {
+                      Navigator.of(formCtx).pop();
+                      ToastNotification.show(context, message: 'Preset "${preset.name}" saved.', type: ToastType.success);
+                    }
+                  },
+                  child: const Text('Save Preset'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _exportMonthlyAttendanceToExcel() async {
     final targetMonth = _selectedWeekStart.month;
     final targetYear = _selectedWeekStart.year;
@@ -162,10 +492,13 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
       final sheets = await repo.getScheduleSheets(month: targetMonth, year: targetYear);
       final allLogs = await repo.getAttendanceLogs();
       final allLeaves = await repo.getLeaveRequests();
+      final allUsers = await repo.getUsers();
+      final workerStatusMap = {for (final u in allUsers) u.userId: u.status};
 
       final xlsxBytes = await OfficialAttendanceExcelHelper.generateMonthlyAttendanceWorkbook(
         sheets: sheets,
         monthStart: _selectedWeekStart,
+        workerStatusMap: workerStatusMap,
         evaluateStatus: ({required ScheduleEntryModel worker, required DateTime date}) {
           final logsForDay = allLogs.where((l) {
             return (l.userId == worker.userId || l.workerName == worker.workerName) &&
@@ -216,6 +549,8 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     final currentUser = ref.watch(currentUserProvider);
     final attendanceAsync = ref.watch(attendanceProvider);
     final workAreasAsync = ref.watch(workAreasProvider);
+    final employeesAsync = ref.watch(employeesProvider);
+    final allEmployees = employeesAsync.value ?? [];
     final globalSearch = ref.watch(globalSearchProvider).toLowerCase();
     final rawLogs = attendanceAsync.value ?? [];
     final rawWorkAreas = workAreasAsync.value ?? [];
@@ -315,12 +650,12 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                 ),
               ),
               const SizedBox(width: 16),
-              // Button to Export Selected Month's Attendance to Excel
+              // Button to Manage Time Presets
               AppButton(
-                label: _isExporting ? 'Exporting...' : 'Export Excel (${DateFormat('MMM yyyy').format(_selectedWeekStart)})',
-                icon: Icons.file_download_outlined,
+                label: 'Manage Time Presets',
+                icon: Icons.alarm_add_rounded,
                 variant: ButtonVariant.outline,
-                onPressed: _isExporting ? null : _exportMonthlyAttendanceToExcel,
+                onPressed: _showManageTimePresetsDialog,
               ),
               const SizedBox(width: 10),
               // Button to open Worker Schedule Management (Excel Interface)
@@ -364,7 +699,21 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
             selectedWeekStart: _selectedWeekStart,
             onWeekChanged: (newWeekStart) => setState(() => _selectedWeekStart = newWeekStart),
           ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 14),
+
+          // Action bar under Sector A, right-aligned with the screen
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              AppButton(
+                label: _isExporting ? 'Exporting...' : 'Export Excel (${DateFormat('MMM yyyy').format(_selectedWeekStart)})',
+                icon: Icons.file_download_outlined,
+                variant: ButtonVariant.primary,
+                onPressed: _isExporting ? null : _exportMonthlyAttendanceToExcel,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
 
           // ========================================================
           // SECTION B: ACTUAL ATTENDANCE TRANSACTION LOGS
@@ -590,7 +939,9 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                   itemBuilder: (context, index) {
                     final daily = dailyGroups[index];
                     final isExpanded = _expandedWorkerKeys.contains(daily.userId);
-                    return _buildWorkerAttendanceCard(daily, isExpanded);
+                    final emp = allEmployees.where((u) => u.userId == daily.userId).firstOrNull;
+                    final isTerminated = emp?.isTerminated ?? (emp?.status.toLowerCase() == 'terminated');
+                    return _buildWorkerAttendanceCard(daily, isExpanded, isTerminated);
                   },
                 ),
               ),
@@ -600,7 +951,7 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
     );
   }
 
-  Widget _buildWorkerAttendanceCard(DailyWorkerAttendance daily, bool isExpanded) {
+  Widget _buildWorkerAttendanceCard(DailyWorkerAttendance daily, bool isExpanded, bool isTerminated) {
     final isLeave = daily.isOnLeave;
 
     return Container(
@@ -654,10 +1005,21 @@ class _AttendanceViewState extends ConsumerState<AttendanceView> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          daily.workerName,
-                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary),
-                          overflow: TextOverflow.ellipsis,
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                daily.workerName,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            StatusBadge(
+                              label: isTerminated ? 'TERMINATED' : 'ACTIVE',
+                              type: isTerminated ? BadgeType.danger : BadgeType.success,
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Row(
